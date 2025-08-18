@@ -1,33 +1,34 @@
-import React, { useState } from 'react';
+import React, { useMemo } from 'react';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { SearchResult } from '@/types/search';
 import { navigationSections } from '@/types/navigation';
+import { Outlet, useLocation } from 'react-router-dom';
+import { Toaster } from '@/components/ui/toaster';
+export const Layout: React.FC = () => {
+  const location = useLocation();
 
-interface LayoutProps {
-  children?: React.ReactNode;
-  defaultSection?: string;
-}
+  // Aplatis les items de navigation
+  const allItems = useMemo(() => navigationSections.flatMap(s => s.items), []);
 
-export const Layout: React.FC<LayoutProps> = ({ children, defaultSection = 'users' }) => {
-  const [activeSection, setActiveSection] = useState(defaultSection);
+  // Trouve l'item actif par "longest prefix match"
+  const activeItem = useMemo(() => {
+    const pathname = location.pathname;
+    const sorted = [...allItems].sort((a, b) => b.path.length - a.path.length);
+    return sorted.find(i => pathname === i.path || pathname.startsWith(i.path + '/'));
+  }, [location.pathname, allItems]);
+
+  const activeSection = activeItem?.id ?? 'unknown';
 
   const handleSearchResultSelect = (result: SearchResult) => {
-    // Logique de sélection de résultat de recherche (à implémenter)
     console.log('Selected search result:', result);
   };
 
-  const getPageTitle = (): string => {
-    const activeItem = navigationSections
-      .flatMap(section => section.items)
-      .find(item => item.id === activeSection);
-    
-    return activeItem?.label || 'Page non trouvée';
-  };
+  const getPageTitle = (): string => activeItem?.label || 'Page non trouvée';
 
   const getPageDescription = (): string => {
     const descriptions: Record<string, string> = {
-      dashboard: 'Vue d\'ensemble de l\'activité et des indicateurs clés',
+      dashboard: "Vue d'ensemble de l'activité et des indicateurs clés",
       tasks: 'Gestion des tâches et suivi des actions à effectuer',
       users: 'Gestion des usagers et de leurs dossiers',
       journal: 'Historique des actions et événements',
@@ -35,23 +36,36 @@ export const Layout: React.FC<LayoutProps> = ({ children, defaultSection = 'user
       leases: 'Gestion des contrats de bail et locations',
       calendar: 'Planification et suivi des rendez-vous',
       reports: 'Analyses et rapports statistiques',
-      settings: 'Configuration système et gestion des utilisateurs'
+      settings: 'Configuration système et gestion des utilisateurs',
+      session: 'Gestion des séances et décisions',
     };
-    
     return descriptions[activeSection] || 'Section non configurée';
   };
 
+  // Libellés de sous-rubriques
+  const subHousingMap: Record<string, string> = {
+    'llm-vacant': 'Liste des LLM vacants',
+    'gerances': 'Liste des gérances',
+    'immeubles': 'Liste des immeubles',
+  };
+  const subSessionMap: Record<string, string> = {
+    'equipe': "Séance d'équipe",
+    'recours': 'Recours / réclamation',
+    'derogation': 'Dérogation',
+  };
+
+  const seg2 = location.pathname.split('/')[2]; // ex: "/housing/llm-vacant" -> "llm-vacant"
+  const subCrumb =
+    location.pathname.startsWith('/housing') ? subHousingMap[seg2] :
+    location.pathname.startsWith('/session') ? subSessionMap[seg2] :
+    undefined;
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
-      <Sidebar 
-        activeSection={activeSection} 
-        onSectionChange={setActiveSection} 
-      />
-      
+      <Sidebar />
       <Header onSearchResultSelect={handleSearchResultSelect} />
-      
+
       <div className="ml-64 pt-16">
-        {/* Contenu principal */}
         <div className="bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 min-h-[calc(100vh-4rem)]">
           {/* Header de contenu */}
           <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm border-b border-slate-200 dark:border-slate-700 px-6 py-4">
@@ -66,41 +80,33 @@ export const Layout: React.FC<LayoutProps> = ({ children, defaultSection = 'user
               </div>
             </div>
           </div>
-          
-          {/* Fil d'Ariane */}
+
+          {/* Fil d’Ariane */}
           <div className="bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700 px-6 py-2">
             <div className="flex items-center text-sm text-slate-600 dark:text-slate-400">
               <span className="font-medium text-slate-800 dark:text-slate-200">{getPageTitle()}</span>
-              {activeSection === 'users' && (
+
+              {/* Exemple spécifique Users (garde si tu veux) */}
+              {location.pathname.startsWith('/users') && (
                 <>
                   <span className="mx-2">›</span>
                   <span className="font-medium text-slate-800 dark:text-slate-200">MARTIN Sophie</span>
                 </>
               )}
+
+              {/* Sous-rubriques Housing / Session */}
+              {subCrumb && (
+                <>
+                  <span className="mx-2">›</span>
+                  <span className="font-medium text-slate-800 dark:text-slate-200">{subCrumb}</span>
+                </>
+              )}
             </div>
           </div>
-          
-          {/* Contenu */}
+
+          {/* Contenu des routes */}
           <main className="p-6">
-            {children || (
-              <div className="max-w-4xl mx-auto">
-                <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 p-8 text-center">
-                  <div className="w-16 h-16 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <div className="w-8 h-8 bg-slate-300 dark:bg-slate-600 rounded animate-pulse"></div>
-                  </div>
-                  <h2 className="text-xl font-semibold text-slate-900 dark:text-white mb-2">
-                    {getPageTitle()}
-                  </h2>
-                  <p className="text-slate-500 dark:text-slate-400 mb-6">
-                    Cette section est en cours de développement.
-                  </p>
-                  <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg text-sm">
-                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                    Bientôt disponible
-                  </div>
-                </div>
-              </div>
-            )}
+            <Outlet />
           </main>
         </div>
       </div>

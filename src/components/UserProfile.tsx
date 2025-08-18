@@ -442,7 +442,7 @@ const UserProfile: React.FC = () => {
         {/* Bloc Informations personnelles et Dates côte à côte */}
         <div className="grid grid-cols-4 gap-6">
           {/* Bloc Informations personnelles - 5/6 de la largeur */}
-          <Card className={`col-span-5 shadow-lg border-0 backdrop-blur-sm transition-all duration-300 ${
+          <Card className={`col-span-6 shadow-lg border-0 backdrop-blur-sm transition-all duration-300 ${
             isSwapping ? 'scale-105 shadow-2xl ring-4 ring-blue-200 bg-blue-50/90' : 
             userProfile.gender === 'Masculin' 
               ? 'bg-blue-50/80 dark:bg-blue-900/20' 
@@ -450,7 +450,7 @@ const UserProfile: React.FC = () => {
               ? 'bg-pink-50/80 dark:bg-pink-900/20' 
               : 'bg-white/80 dark:bg-slate-800'
           }`}>
-            <CardHeader className="pb-4">
+            <CardHeader className="pb-3">
               <div className="flex justify-between items-center">
                 <CardTitle className={`text-xl font-semibold transition-colors duration-300 ${
                   isSwapping ? 'text-blue-700' : 'text-slate-800'

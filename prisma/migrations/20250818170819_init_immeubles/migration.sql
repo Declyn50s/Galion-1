@@ -1,0 +1,8 @@
+-- CreateTable
+CREATE TABLE "Immeuble" (
+    "sehl" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "adresse" TEXT NOT NULL DEFAULT '',
+    "base_legale" TEXT NOT NULL DEFAULT '',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
