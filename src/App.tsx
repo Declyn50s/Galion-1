@@ -13,6 +13,7 @@ import SessionPage from './pages/session/SessionPage';
 import TeamMeetingsList from './pages/session/TeamMeetingsList';
 import RecoursReclamationsList from './pages/session/RecoursReclamationsList';
 import DerogationsList from './pages/session/DerogationsList';
+import DerogationsPV from '@/pages/session/DerogationsPV';
 import { Toaster } from '@/components/ui/toaster';
 
 import './App.css';
@@ -33,6 +34,7 @@ export default function App() {
             <Route path="equipe" element={<TeamMeetingsList />} />
             <Route path="recours" element={<RecoursReclamationsList />} />
             <Route path="derogation" element={<DerogationsList />} />
+            <Route path="derogations/:id/pv" element={<DerogationsPV />} />
             </Route>
 
           {/* Logements + sous-pages */}
