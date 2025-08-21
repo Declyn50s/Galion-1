@@ -1,11 +1,23 @@
 import React from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, Link } from 'react-router-dom';
 import { navigationSections } from '@/types/navigation';
 import * as Icons from 'lucide-react';
+// ✅ choisis UNE des deux lignes suivantes :
+// import logoUrl from '../../images/logo.png';
+import logoUrl from '@/images/Galion-Logo.png';
 
 export const Sidebar: React.FC = () => {
   return (
     <aside className="fixed left-0 top-0 h-full w-64 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-6">
+      {/* Logo en tête */}
+      <div className="px-3">
+        <Link to="/" className="inline-flex items-center">
+          <img src={logoUrl} alt="Galion" className="h-15 w-auto" loading="eager" />
+        </Link>
+      </div>
+
+      <div className="h-px bg-slate-200 dark:bg-slate-800" />
+
       {navigationSections.map(section => (
         <nav key={section.id} className="space-y-1">
           {section.items.map(item => {
