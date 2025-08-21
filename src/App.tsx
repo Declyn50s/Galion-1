@@ -17,6 +17,7 @@ import RecoursReclamationsList from './pages/session/RecoursReclamationsList';
 import DerogationsList from './pages/session/DerogationsList';
 import DerogationsPV from './pages/session/DerogationsPV';
 
+import AgendaPage from './pages/agenda/AgendaPage';
 import Convocation from './pages/agenda/Convocation';
 import Planning from './pages/agenda/Planning';
 import Vacances from './pages/agenda/Vacances';
@@ -35,10 +36,12 @@ export default function App() {
           <Route path="/journal" element={<Journal />} />
 
           {/* Agenda + sous-pages */}
-          <Route path="/agenda" element={<Navigate to="/agenda/convocation" replace />} />
-          <Route path="/agenda/convocation" element={<Convocation />} />
-          <Route path="/agenda/planning" element={<Planning />} />
-          <Route path="/agenda/vacances" element={<Vacances />} />
+          <Route path="/agenda" element={<AgendaPage />}>
+          <Route index element={<Navigate to="convocation" replace />} />
+          <Route path="convocation" element={<Convocation />} />
+          <Route path="planning" element={<Planning />} />
+          <Route path="vacances" element={<Vacances />} />
+          </Route>
 
           {/* Séances + sous-pages */}
           <Route path="/session" element={<SessionPage />}>

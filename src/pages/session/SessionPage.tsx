@@ -19,9 +19,9 @@ const SessionPage: React.FC = () => {
   return (
     <div className="p-6 space-y-4">
       <div className="flex gap-2 flex-wrap">
-        <SubTab to="/session/equipe" label="Séance d'équipe" />
-        <SubTab to="/session/recours" label="Recours / réclamation" />
-        <SubTab to="/session/derogation" label="Dérogation" />
+        <SubTab to="equipe" label="Séance d'équipe" />
+        <SubTab to="recours" label="Recours / réclamation" />
+        <SubTab to="derogations" label="Dérogations" />
       </div>
 
       <Outlet />
