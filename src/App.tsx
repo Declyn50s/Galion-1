@@ -3,8 +3,8 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/layout/Layout';
 import Journal from './pages/Journal';
-import { UsersPage } from './pages/UsersPage';
-import { Memento } from './pages/Memento';
+import { UsersPage } from './pages/user/UsersPage';
+import { Memento } from './pages/memo/Memento';
 
 import HousingPage from './pages/housing/HousingPage';
 import LlmVacantList from './pages/housing/LlmVacantList';
@@ -22,6 +22,8 @@ import Convocation from './pages/agenda/Convocation';
 import Planning from './pages/agenda/Planning';
 import Vacances from './pages/agenda/Vacances';
 
+import { ReportsPage } from "@/pages/reports/ReportsPage";
+
 import { Toaster } from '@/components/ui/toaster';
 import './App.css';
 
@@ -29,19 +31,26 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Layout parent pour toute l'app */}
         <Route element={<Layout />}>
+          {/* / -> /users */}
           <Route index element={<Navigate to="/users" replace />} />
-          <Route path="/users" element={<UsersPage />} />
 
+          {/* Pages simples */}
+          <Route path="/users" element={<UsersPage />} />
           <Route path="/journal" element={<Journal />} />
+          <Route path="/memo" element={<Memento />} />
 
           {/* Agenda + sous-pages */}
           <Route path="/agenda" element={<AgendaPage />}>
-          <Route index element={<Navigate to="convocation" replace />} />
-          <Route path="convocation" element={<Convocation />} />
-          <Route path="planning" element={<Planning />} />
-          <Route path="vacances" element={<Vacances />} />
+            <Route index element={<Navigate to="convocation" replace />} />
+            <Route path="convocation" element={<Convocation />} />
+            <Route path="planning" element={<Planning />} />
+            <Route path="vacances" element={<Vacances />} />
           </Route>
+
+          {/* Statistiques / Rapports (page parent avec onglets) */}
+          <Route path="/reports/*" element={<ReportsPage />} />
 
           {/* Séances + sous-pages */}
           <Route path="/session" element={<SessionPage />}>
@@ -60,8 +69,7 @@ export default function App() {
             <Route path="immeubles" element={<ImmeublesList />} />
           </Route>
 
-          <Route path="/memo" element={<Memento />} />
-
+          {/* 404 */}
           <Route path="*" element={<div className="p-6">Page non trouvée</div>} />
         </Route>
       </Routes>

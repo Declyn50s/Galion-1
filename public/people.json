@@ -1,0 +1,59 @@
+[
+  {
+    "genre": "♀️ F",
+    "nom": "DUPONT",
+    "prenom": "Marie",
+    "dateNaissance": "01.01.1985",
+    "adresse": "Rue des Lilas 12",
+    "complement": "Appartement 3",
+    "npa": "1000",
+    "ville": "Lausanne",
+    "statut": "Actif"
+  },
+  {
+    "genre": "♂️ M",
+    "nom": "MARTIN",
+    "prenom": "Jean",
+    "dateNaissance": "12.05.1990",
+    "adresse": "Avenue du Rhône 24",
+    "complement": "",
+    "npa": "1200",
+    "ville": "Genève",
+    "statut": "Inactif"
+  },
+    {
+    "nss":"7566233834964",
+    "genre": "♂️ M",
+    "nom": "BOTUNA",
+    "prenom": "Derval",
+    "dateNaissance": "21.12.1995",
+    "adresse": "Avenue de Morges 58",
+    "complement": "",
+    "npa": "1004",
+    "ville": "Lausanne",
+    "statut": "Actif"
+  },
+  {
+    "nss":"7568600036766",
+    "genre": "♀️ F",
+    "nom": "BOTUNA",
+    "prenom": "Serena",
+    "dateNaissance": "13.09.1999",
+    "adresse": "Jardin de Prélaz 7",
+    "complement": "",
+    "npa": "1004",
+    "ville": "Lausanne",
+    "statut": "Actif"
+  },
+    {
+    "genre": "♂️ M",
+    "nom": "MING",
+    "prenom": "Yao",
+    "dateNaissance": "20.05.1990",
+    "adresse": "Rue de la Borde 32",
+    "complement": "",
+    "npa": "1018",
+    "ville": "Lausanne",
+    "statut": "Actif"
+  }
+]

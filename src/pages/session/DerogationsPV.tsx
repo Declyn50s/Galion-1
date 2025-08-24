@@ -500,21 +500,6 @@ export default function DerogationsPV(): JSX.Element {
                         onChange={e => setDateCommission(e.target.value)}
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label>Service</Label>
-                      <Select value={service} onValueChange={setService}>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Service" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="SYE">SYE</SelectItem>
-                          <SelectItem value="Location">Location</SelectItem>
-                          <SelectItem value="Révision">Révision</SelectItem>
-                          <SelectItem value="C&A">C & A</SelectItem>
-                          <SelectItem value="SZ">SZ</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
                     <div className="space-y-2 md:col-span-2">
                       <Label>Membres présents (liste)</Label>
                       <Input
