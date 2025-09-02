@@ -4,18 +4,24 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
-import { computeBareme, columnFromChildrenCount } from "@/lib/bareme"
+import {
+  computeBareme,
+  rentLimitFromIncome,
+  BaremeColumn,
+} from "@/lib/bareme"
 
 type Props = {
   registrationDate?: string
   lastCertificateDate?: string
   deadline?: string
   maxRooms?: number
-  /** Loyer min déjà calculé ailleurs (ex: via UserProfilePage avec le barème) */
+  /** Loyer min calculé en amont (si dispo) — correspond à la limite pour RDU + colonne */
   minRent?: number
-  /** Nombre d’enfants COMPTÉS (sert à choisir la colonne du barème) */
+  /** (optionnel) Nb d’enfants COMPTÉS (info UI uniquement) */
   countedMinors?: number
-  /** (Optionnel) RDU ménage si tu veux afficher la ligne de barème correspondante */
+  /** Colonne de barème à utiliser (incluant bonus DV, borne max, etc.) */
+  baremeColumn: BaremeColumn
+  /** RDU ménage (fallback pour calculer le loyer min si minRent n’est pas fourni) */
   rduForBareme?: number
   onChange: (field: string, value: any) => void
   className?: string
@@ -26,19 +32,6 @@ const formatCurrency = (amount?: number) =>
     ? `CHF ${amount.toLocaleString("fr-CH", { maximumFractionDigits: 0 })}`
     : "—"
 
-// Tolère {min,max} ou [min,max]
-function normalizeRange(range: any): { min: number; max: number } | null {
-  if (!range) return null
-  if (Array.isArray(range)) {
-    const [min, max] = range
-    return { min: Number(min) || 0, max: Number(max) || 0 }
-  }
-  if (typeof range.min === "number" && typeof range.max === "number") {
-    return { min: range.min, max: range.max }
-  }
-  return null
-}
-
 const DatesCard: React.FC<Props> = ({
   registrationDate,
   lastCertificateDate,
@@ -46,20 +39,28 @@ const DatesCard: React.FC<Props> = ({
   maxRooms,
   minRent,
   countedMinors = 0,
+  baremeColumn,
   rduForBareme,
   onChange,
   className = "",
 }) => {
-  // Affichage (optionnel) de la ligne de barème si on a le RDU ménage
-  const baremeInfo = useMemo(() => {
-    if (typeof rduForBareme !== "number") return null
-    const col = columnFromChildrenCount(countedMinors) // 0 enfant → col 1 ; 1 → 2 ; … ; ≥4 → 5
-    const hit = computeBareme(rduForBareme, col)
-    if (!hit) return null
-    const rent = normalizeRange(hit.rentRange)
-    const inc = normalizeRange(hit.incomeRange)
-    return rent && inc ? { col, rent, inc } : null
-  }, [rduForBareme, countedMinors])
+  // 1) Colonne du barème : fournie par le parent (déjà “finale”)
+  const col = baremeColumn
+
+  // 2) Loyer min effectif : prend la prop si dispo, sinon calcule via RDU + col
+  const effectiveMinRent = useMemo(() => {
+    if (typeof minRent === "number") return minRent
+    if (typeof rduForBareme === "number" && rduForBareme > 0) {
+      return rentLimitFromIncome(rduForBareme, col)
+    }
+    return undefined
+  }, [minRent, rduForBareme, col])
+
+  // 3) Infos barème (tranche loyer + plage RDU) basées sur le loyer min effectif
+  const bar = useMemo(() => {
+    if (typeof effectiveMinRent !== "number") return null
+    return computeBareme(effectiveMinRent, col)
+  }, [effectiveMinRent, col])
 
   return (
     <Card className={`border bg-white shadow-sm ${className}`}>
@@ -68,7 +69,7 @@ const DatesCard: React.FC<Props> = ({
       </CardHeader>
 
       <CardContent className="px-3 pb-3">
-        {/* Ligne 1 : 3 dates compactes */}
+        {/* Ligne 1 : 3 dates */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
           <Field label="Inscription">
             <Input
@@ -102,7 +103,7 @@ const DatesCard: React.FC<Props> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
           <Field label="Pièces max">
             <Select
-              value={maxRooms?.toString() || ""}
+              value={typeof maxRooms === "number" ? String(maxRooms) : ""}
               onValueChange={(v) => onChange("maxRooms", v ? Number(v) : undefined)}
             >
               <SelectTrigger className="h-8 text-xs">
@@ -118,24 +119,29 @@ const DatesCard: React.FC<Props> = ({
             </Select>
           </Field>
 
-          <Field label="Loyer min">
+          <Field label={`Loyer min (limite) • Col. ${col}`}>
             <div>
               <Input
                 readOnly
-                value={formatCurrency(minRent)}
+                value={formatCurrency(effectiveMinRent)}
                 className="h-8 text-xs bg-slate-100 cursor-not-allowed"
               />
-
-              {baremeInfo && (
+              {bar && (
                 <p className="mt-1 text-[11px] leading-tight text-slate-600">
-                  Colonne {baremeInfo.col} • Tranche loyer{" "}
-                  {`CHF ${baremeInfo.rent.min.toLocaleString("fr-CH", { maximumFractionDigits: 0 })}`}
+                  Tranche loyer{" "}
+                  {`CHF ${bar.rentRange.min.toLocaleString("fr-CH", { maximumFractionDigits: 0 })}`}
                   {" – "}
-                  {`CHF ${baremeInfo.rent.max.toLocaleString("fr-CH", { maximumFractionDigits: 0 })}`}{" "}
+                  {`CHF ${bar.rentRange.max.toLocaleString("fr-CH", { maximumFractionDigits: 0 })}`}{" "}
                   • RDU admissible{" "}
-                  {`CHF ${baremeInfo.inc.min.toLocaleString("fr-CH", { maximumFractionDigits: 0 })}`}
+                  {`CHF ${bar.incomeRange.min.toLocaleString("fr-CH", { maximumFractionDigits: 0 })}`}
                   {" – "}
-                  {`CHF ${baremeInfo.inc.max.toLocaleString("fr-CH", { maximumFractionDigits: 0 })}`}
+                  {`CHF ${bar.incomeRange.max.toLocaleString("fr-CH", { maximumFractionDigits: 0 })}`}
+                  {typeof countedMinors === "number" && (
+                    <>
+                      {" "}
+                      • Enfants comptés: {countedMinors}
+                    </>
+                  )}
                 </p>
               )}
             </div>

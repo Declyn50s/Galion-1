@@ -16,8 +16,8 @@ import HousingProposals from "./components/HousingProposals/HousingProposals"
 import HouseholdCounters from "./components/HouseholdCounters/HouseholdCounters"
 import QuickNavSticky, { QuickNavIcons } from "./components/QuickNavSticky/QuickNavSticky"
 
-// 🔹 Barème
-import { computeBareme, columnFromChildrenCount } from "@/lib/bareme"
+// Barème
+import { rentLimitFromIncome, BaremeColumn } from "@/lib/bareme"
 
 // ────────────────────────────────────────────────────────────────────────────────
 // Helpers “comptés” (mêmes règles que HouseholdCounters)
@@ -27,11 +27,23 @@ const toDate = (s?: string) => {
   return Number.isNaN(d.getTime()) ? undefined : d
 }
 
+// robustesse sur les libellés de permis et nationalité
 const isPermitValid = (nationality?: string, permit?: string, expiry?: string) => {
   const nat = (nationality ?? "").trim().toLowerCase()
-  const p = (permit ?? "").trim()
-  if (nat === "suisse" || p === "Citoyen" || p === "Permis C") return true
-  if (p === "Permis B" || p === "Permis F") {
+  const p = (permit ?? "").trim().toLowerCase()
+
+  // Suisses toujours OK
+  if (nat === "suisse") return true
+
+  // Normalisation simple
+  const isCitizen = p === "citoyen" || p === "citizen"
+  const isC = p === "permis c" || p === "c"
+  const isB = p === "permis b" || p === "b"
+  const isF = p === "permis f" || p === "f"
+
+  if (isCitizen || isC) return true
+
+  if (isB || isF) {
     const d = toDate(expiry)
     if (!d) return false
     const today = new Date()
@@ -50,40 +62,68 @@ const yearsDiff = (iso?: string) => {
   if (md < 0 || (md === 0 && today.getDate() < d.getDate())) age--
   return age
 }
+
+// Normalisation robuste des rôles : minuscule + uniformisation des tirets
+const normalizeRole = (s?: string) =>
+  (s || "")
+    .toLowerCase()
+    .replace(/-/g, "–")         // uniformiser '-' en '–'
+    .replace(/\s*–\s*/g, " – ") // espaces autour du tiret
+    .trim()
+
+// Détection robuste des “enfant(s) en droit de visite / en visite”
+const isVisitingChildRole = (role?: string) => {
+  const r = normalizeRole(role)
+  // Commence par "enfant" et contient "visite" (gère "en visite", "droit de visite", pluriels)
+  return /^enfant\b/.test(r) && /\bvisite\b/.test(r)
+}
 // ────────────────────────────────────────────────────────────────────────────────
 
 const UserProfilePage: React.FC = () => {
   const { userId } = useParams<{ userId: string }>()
   const state = useUserProfileState(userId)
 
-  // 🔸 RDU ménage récupéré depuis IncomeCard
+  // RDU ménage récupéré depuis IncomeCard
   const [rduTotal, setRduTotal] = React.useState<number>(0)
 
-  // 🔸 Nombre d’enfants “comptés” (permis valide + <18 ans) : on inclut la personne principale + ménage
+  const household = state.userProfile.household ?? []
+
+  // DV : seuls les mineurs comptent pour le bonus, on ne vérifie pas le permis
+  const visitingChildrenCount = React.useMemo(() => {
+    return household.reduce((acc: number, m: any) => {
+      return acc + (isVisitingChildRole(m.role) && yearsDiff(m.birthDate) < 18 ? 1 : 0)
+    }, 0)
+  }, [household])
+
+  // Enfants “comptés” : enfant / enfant à charge / garde alternée (<18 + permis valide)
   const minorsCount = React.useMemo(() => {
-    const all = [
-      {
-        birthDate: state.userProfile.birthDate,
-        nationality: state.userProfile.nationality,
-        residencePermit: state.userProfile.residencePermit,
-        permitExpiryDate: state.userProfile.permitExpiryDate,
-      },
-      ...(state.userProfile.household ?? []),
-    ]
-    return all.reduce((acc, m: any) => {
+    return household.reduce((acc: number, m: any) => {
+      const r = normalizeRole(m.role)
+      const isCountedRole =
+        r === "enfant" || r === "enfant à charge" || r === "enfant – garde alternée"
+      if (!isCountedRole) return acc
       if (!isPermitValid(m.nationality, m.residencePermit, m.permitExpiryDate)) return acc
       return acc + (yearsDiff(m.birthDate) < 18 ? 1 : 0)
     }, 0)
-  }, [state.userProfile.birthDate, state.userProfile.nationality, state.userProfile.residencePermit, state.userProfile.permitExpiryDate, state.userProfile.household])
+  }, [household])
 
-  // 🔸 Colonne barème depuis le nombre d’enfants comptés
-  const baremeCol = React.useMemo(() => columnFromChildrenCount(minorsCount), [minorsCount])
+  // Colonne base (0 enfant -> 1 ; n -> min(n,4)+1)
+  const baseCol = React.useMemo<number>(() => {
+    const n = Math.max(0, Math.floor(minorsCount))
+    return n === 0 ? 1 : Math.min(n, 4) + 1
+  }, [minorsCount])
 
-  // 🔸 Min rent depuis le barème (bas de la bande)
+  // Bonus DV : +1 si >= 2 DV ; borne max 5
+  const finalCol = React.useMemo<BaremeColumn>(() => {
+    const bonus = visitingChildrenCount >= 2 ? 1 : 0
+    return Math.min(baseCol + bonus, 5) as BaremeColumn
+  }, [baseCol, visitingChildrenCount])
+
+  // Loyer min (limite) depuis le barème et la colonne FINALE
   const minRent = React.useMemo(() => {
-    const hit = computeBareme(rduTotal, baremeCol)
-    return hit?.rentRange?.[0] // ex: 690
-  }, [rduTotal, baremeCol])
+    if (typeof rduTotal !== "number" || rduTotal <= 0) return undefined
+    return rentLimitFromIncome(rduTotal, finalCol)
+  }, [rduTotal, finalCol])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
@@ -135,22 +175,22 @@ const UserProfilePage: React.FC = () => {
                       residencePermit: state.userProfile.residencePermit,
                       permitExpiryDate: state.userProfile.permitExpiryDate,
                     }}
-                    household={state.userProfile.household}
+                    household={household}
                   />
                 </div>
 
                 <div className="h-full">
                   <DatesCard
-  registrationDate={state.userProfile.registrationDate}
-  lastCertificateDate={state.userProfile.lastCertificateDate}
-  deadline={state.userProfile.deadline}
-  maxRooms={state.userProfile.maxRooms}
-  minRent={minRent}                // ← calculé ailleurs depuis computeBareme(rduTotal, col).rentRange.min
-  countedMinors={minorsCount}      // ← ton compteur d’enfants “comptés”
-  rduForBareme={rduTotal}          // ← pour afficher la ligne de barème (optionnel)
-  onChange={state.updateProfile}
-/>
-
+                    registrationDate={state.userProfile.registrationDate}
+                    lastCertificateDate={state.userProfile.lastCertificateDate}
+                    deadline={state.userProfile.deadline}
+                    maxRooms={state.userProfile.maxRooms}
+                    minRent={minRent}               // limite loyer (colonne finale)
+                    countedMinors={minorsCount}     // info UI
+                    baremeColumn={finalCol}         // Colonne utilisée par DatesCard
+                    rduForBareme={rduTotal}         // pour afficher la plage RDU si minRent absent
+                    onChange={state.updateProfile}
+                  />
                 </div>
               </div>
             </section>
@@ -175,7 +215,7 @@ const UserProfilePage: React.FC = () => {
             <section id="section-household">
               <div className="grid grid-cols-1 gap-4">
                 <HouseholdCard
-                  household={state.userProfile.household}
+                  household={household}
                   onRemove={state.removeHouseholdMember}
                   onSwap={state.swapWithPersonalInfo}
                   onQuickAdd={state.addHouseholdMemberQuick}
@@ -198,15 +238,24 @@ const UserProfilePage: React.FC = () => {
                     residencePermit: state.userProfile.residencePermit,
                     permitExpiryDate: state.userProfile.permitExpiryDate,
                   },
-                  ...(state.userProfile.household ?? []).map((m: any) => ({
-                    id: m.id,
-                    role: m.role === "Conjoint" ? "conjoint" : m.role === "Enfant" ? "enfant" : "autre",
-                    name: m.name,
-                    birthDate: m.birthDate,
-                    nationality: m.nationality,
-                    residencePermit: m.residencePermit,
-                    permitExpiryDate: m.permitExpiryDate,
-                  })),
+                  ...household.map((m: any) => {
+                    const r = normalizeRole(m.role)
+                    const role =
+                      r === "conjoint"
+                        ? "conjoint"
+                        : r.startsWith("enfant")
+                          ? "enfant"
+                          : "autre"
+                    return {
+                      id: m.id,
+                      role,
+                      name: m.name,
+                      birthDate: m.birthDate,
+                      nationality: m.nationality,
+                      residencePermit: m.residencePermit,
+                      permitExpiryDate: m.permitExpiryDate,
+                    }
+                  }),
                 ]}
                 countMode="counted"
                 onTotalsChange={({ totalRDUHousehold }) => setRduTotal(totalRDUHousehold)}

@@ -1,14 +1,19 @@
 // src/lib/bareme.ts
 // Barème LLHPS 2016 : lookup exact dans la table officielle.
-// Règle : on prend la PREMIÈRE ligne dont le cap de la colonne >= revenu (plafond).
 
 export type BaremeColumn = 1 | 2 | 3 | 4 | 5; // 1=1/2 pers, 2=1 enf, 3=2 enf, 4=3 enf, 5=≥4
 export type Range = { min: number; max: number };
 export type Row = { limit: number; caps: [number, number, number, number, number] };
 
+/** 0 enfant → col 1 ; 1 → 2 ; 2 → 3 ; 3 → 4 ; ≥4 → 5 */
+export function columnFromChildrenCount(minors: number): BaremeColumn {
+  const n = Math.max(0, Math.floor(minors || 0));
+  const col = n === 0 ? 1 : Math.min(n, 4) + 1;
+  return col as BaremeColumn;
+}
+
 // ———————————————————————————————————————————————————————————
-// Table brute copiée de la source officielle RDU–LHPS 2016.
-// NOTE : les colonnes sont séparées par des tabulations (\t).
+// Table brute (tabulations \t). Col1..Col5 = plafonds RDU par colonne.
 // ———————————————————————————————————————————————————————————
 const TABLE_TSV = `Loyer	Col1	Col2	Col3	Col4	Col5
 200	29000	32000	35000	38000	41000
@@ -278,6 +283,7 @@ const TABLE_TSV = `Loyer	Col1	Col2	Col3	Col4	Col5
 2890	97570	100570	103570	106570	109570
 2900	97570	100570	103570	106570	109570`;
 
+// Parse TSV
 function parseTable(tsv: string): Row[] {
   const lines = tsv.trim().split(/\r?\n/);
   const rows: Row[] = [];
@@ -293,27 +299,32 @@ function parseTable(tsv: string): Row[] {
 
 const ROWS = parseTable(TABLE_TSV);
 
-// ———————————————————————————————————————————————————————————
-// Recherche : première ligne dont cap >= revenu (lower_bound)
-// ———————————————————————————————————————————————————————————
+// ==== Searches ===============================================================
+
+// Par revenu (première ligne dont cap >= revenu) — pour rentLimitFromIncome
 function findRowByIncomeCeil(income: number, col: BaremeColumn): number {
   const idxCol = col - 1;
   let lo = 0, hi = ROWS.length - 1, ans = ROWS.length - 1;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
-    if (income <= ROWS[mid].caps[idxCol]) {
-      ans = mid;
-      hi = mid - 1;
-    } else {
-      lo = mid + 1;
-    }
+    if (income <= ROWS[mid].caps[idxCol]) { ans = mid; hi = mid - 1; }
+    else { lo = mid + 1; }
   }
   return ans;
 }
 
-// ———————————————————————————————————————————————————————————
-// API publique
-// ———————————————————————————————————————————————————————————
+// Par loyer (dernière ligne dont limit <= loyer) — pour computeBareme
+function findRowByRentFloor(rent: number): number {
+  let lo = 0, hi = ROWS.length - 1, ans = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (ROWS[mid].limit <= rent) { ans = mid; lo = mid + 1; }
+    else { hi = mid - 1; }
+  }
+  return ans;
+}
+
+// ==== Public API =============================================================
 
 /** Limite unique (CHF) pour un revenu et une colonne donnée. */
 export function rentLimitFromIncome(income: number, col: BaremeColumn): number {
@@ -338,7 +349,38 @@ export function incomeRangeForLimit(income: number, col: BaremeColumn): Range {
   return { min: lo, max: hi };
 }
 
-/** Expose la table brute (pour UI/tableau). */
+/** 
+ * API utilisée par DatesCard : à partir d’un loyer (min) + colonne,
+ * renvoie la tranche de loyer et la plage RDU autorisée.
+ */
+export function computeBareme(rent: number, col: BaremeColumn): {
+  label: string;
+  rentRange: Range;
+  incomeRange: Range;
+  incomeCap: number;
+  rowIndex: number;
+} {
+  const idx = findRowByRentFloor(Math.max(0, Math.floor(rent)));
+  const row = ROWS[idx];
+  const next = ROWS[idx + 1];
+
+  const rentMin = row.limit;
+  const rentMax = next ? next.limit - 1 : row.limit; // borne sup ≈ (prochaine limite - 1)
+
+  const cap = row.caps[col - 1];
+  const incomeMin = idx === 0 ? 0 : ROWS[idx - 1].caps[col - 1] + 1;
+  const incomeMax = cap;
+
+  return {
+    label: `Colonne ${col}`,
+    rentRange: { min: rentMin, max: rentMax },
+    incomeRange: { min: incomeMin, max: incomeMax },
+    incomeCap: cap,
+    rowIndex: idx,
+  };
+}
+
+/** Expose la table brute (pour UI/tableau) */
 export function listAllRows(): Row[] {
   return ROWS.slice();
 }
