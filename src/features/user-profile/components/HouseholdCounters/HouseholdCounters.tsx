@@ -35,17 +35,17 @@ const isPermitValid = (nationality?: string, permit?: string, expiry?: string) =
   const nat = (nationality ?? "").trim().toLowerCase()
   const p = (permit ?? "").trim()
 
-  if (nat === "suisse" || p === "Citoyen") return true         // Suisse / Citoyen
-  if (p === "Permis C") return true                            // C toujours compté
+  if (nat === "suisse" || p === "Citoyen") return true
+  if (p === "Permis C") return true
 
-  if (p === "Permis B" || p === "Permis F") {                  // B/F valides si non expirés
+  if (p === "Permis B" || p === "Permis F") {
     const d = toDate(expiry)
     if (!d) return false
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     return d >= today
   }
-  return false                                                 // Autres permis => non comptés
+  return false
 }
 
 const yearsDiff = (iso?: string) => {
@@ -62,16 +62,15 @@ const yearsDiff = (iso?: string) => {
 const normalize = (s?: string) =>
   (s ?? "")
     .toLowerCase()
-    .replace(/[–—-]/g, " ")          // tirets → espace
+    .replace(/[–—-]/g, " ")
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "") // accents
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/\s+/g, " ")
     .trim()
 
 /** Enfant “droit de visite” (DV) — ne doit PAS être compté dans total/adultes/mineurs */
 const isVisitingChild = (role?: string) => {
   const r = normalize(role)
-  // couvre "enfant – droit de visite", "enfant droit de visite", etc.
   return r.includes("enfant") && r.includes("droit de visite")
 }
 
@@ -114,7 +113,6 @@ const HouseholdCounters: React.FC<Props> = ({
     // Personne principale (jamais DV)
     if (main) {
       const { birthDate, nationality, residencePermit, permitExpiryDate } = main
-      // Si aucune info de permis ⇒ on la compte par défaut (ancien comportement)
       if (!nationality && !residencePermit && !permitExpiryDate) {
         const age = yearsDiff(birthDate)
         total++
@@ -128,7 +126,6 @@ const HouseholdCounters: React.FC<Props> = ({
     // Membres du ménage
     for (const m of household) {
       if (isVisitingChild(m.role)) {
-        // DV: on incrémente le tag DV, mais on NE le compte PAS dans total/adultes/mineurs/excluded
         visitingChildren++
         continue
       }
@@ -138,7 +135,6 @@ const HouseholdCounters: React.FC<Props> = ({
     return { total, adults, minors, excluded, visitingChildren }
   }, [main, household])
 
-  // paddings très sobres
   const pad =
     density === "tight" ? "px-2 py-1.5" : density === "compact" ? "px-3 py-2" : "px-4 py-3"
 
@@ -149,11 +145,11 @@ const HouseholdCounters: React.FC<Props> = ({
           <div className="text-xs font-medium text-slate-600 mr-1">👪 Ménage</div>
           <Pill label="Total" value={counts.total} title="Total des personnes comptées" />
           <Pill label="Adultes" value={counts.adults} />
-          <Pill label="Mineurs" value={counts.minors} />
+          {counts.minors > 0 && <Pill label="Mineurs" value={counts.minors} />}
 
           <div className="ml-auto flex items-center gap-1">
             {counts.visitingChildren > 0 && (
-              <Pill label="Enfants DV" value={counts.visitingChildren} title="Enfants en droit de visite (non comptés)" />
+              <Pill label="Enfants en droit de visite" value={counts.visitingChildren} title="Enfants en droit de visite (non comptés)" />
             )}
             {counts.excluded > 0 && (
               <>
@@ -177,14 +173,14 @@ const HouseholdCounters: React.FC<Props> = ({
     )
   }
 
-  // Variante "panel" (toujours compacte)
+  // Variante "panel"
   return (
     <Card className={`border bg-white/80 ${pad} ${className}`}>
       <div className="mb-1 text-xs font-medium text-slate-600">👪 Comptage du ménage</div>
       <div className="flex flex-wrap items-center gap-2">
         <Pill label="Total" value={counts.total} />
         <Pill label="Adultes" value={counts.adults} />
-        <Pill label="Mineurs" value={counts.minors} />
+        {counts.minors > 0 && <Pill label="Mineurs" value={counts.minors} />}
         <div className="ml-auto flex items-center gap-1">
           {counts.visitingChildren > 0 && (
             <Pill label="Enfants DV" value={counts.visitingChildren} title="Enfants en droit de visite (non comptés)" />

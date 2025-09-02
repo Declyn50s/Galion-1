@@ -5,6 +5,7 @@ import { Layout } from './components/layout/Layout'
 import Journal from './pages/Journal'
 import { UsersPage } from './pages/user/UsersPage'
 import { UserProfilePage } from '@/features/user-profile'
+import TenantProfilePage from "@/features/tenant/TenantProfilePage";
 import { Memento } from './pages/memo/Memento'
 
 import HousingPage from './pages/housing/HousingPage'
@@ -39,6 +40,7 @@ export default function App() {
 
           {/* Détail usager */}
           <Route path="/users/:userId" element={<UserProfilePage />} />
+          <Route path="/tenants/:userId" element={<TenantProfilePage />} />
 
           {/* Pages simples */}
           <Route path="/users" element={<UsersPage />} />

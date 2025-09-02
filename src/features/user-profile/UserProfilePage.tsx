@@ -16,33 +16,31 @@ import HousingProposals from "./components/HousingProposals/HousingProposals"
 import HouseholdCounters from "./components/HouseholdCounters/HouseholdCounters"
 import QuickNavSticky, { QuickNavIcons } from "./components/QuickNavSticky/QuickNavSticky"
 
+// LLM / immeubles subventionnés
+import { isAdresseInImmeubles } from "@/data/immeubles"
+
 // Barème
 import { rentLimitFromIncome, BaremeColumn } from "@/lib/bareme"
 
 // ────────────────────────────────────────────────────────────────────────────────
-// Helpers “comptés” (mêmes règles que HouseholdCounters)
+// Helpers
 const toDate = (s?: string) => {
   if (!s) return undefined
   const d = new Date(s)
   return Number.isNaN(d.getTime()) ? undefined : d
 }
 
-// robustesse sur les libellés de permis et nationalité
 const isPermitValid = (nationality?: string, permit?: string, expiry?: string) => {
   const nat = (nationality ?? "").trim().toLowerCase()
   const p = (permit ?? "").trim().toLowerCase()
 
-  // Suisses toujours OK
   if (nat === "suisse") return true
-
-  // Normalisation simple
   const isCitizen = p === "citoyen" || p === "citizen"
   const isC = p === "permis c" || p === "c"
   const isB = p === "permis b" || p === "b"
   const isF = p === "permis f" || p === "f"
 
   if (isCitizen || isC) return true
-
   if (isB || isF) {
     const d = toDate(expiry)
     if (!d) return false
@@ -63,19 +61,36 @@ const yearsDiff = (iso?: string) => {
   return age
 }
 
-// Normalisation robuste des rôles : minuscule + uniformisation des tirets
 const normalizeRole = (s?: string) =>
   (s || "")
     .toLowerCase()
-    .replace(/-/g, "–")         // uniformiser '-' en '–'
-    .replace(/\s*–\s*/g, " – ") // espaces autour du tiret
+    .replace(/-/g, "–")
+    .replace(/\s*–\s*/g, " – ")
     .trim()
 
-// Détection robuste des “enfant(s) en droit de visite / en visite”
 const isVisitingChildRole = (role?: string) => {
   const r = normalizeRole(role)
-  // Commence par "enfant" et contient "visite" (gère "en visite", "droit de visite", pluriels)
   return /^enfant\b/.test(r) && /\bvisite\b/.test(r)
+}
+
+// Reconstruit une “ligne adresse” exploitable par isAdresseInImmeubles
+function addressLineFromProfile(p: any): string {
+  // essaie d’abord les champs “ligne”
+  const direct =
+    p.adresse ?? // même clé que dans UsersPage
+    p.address ??
+    p.addressLine ??
+    p.addressLine1 ??
+    ""
+  if (direct && direct.trim()) return direct.trim()
+
+  // sinon, tente depuis morceaux
+  const parts = [
+    [p.street, p.streetNumber].filter(Boolean).join(" ").trim(),
+    p.addressComplement ?? p.complement ?? "",
+  ].filter((x: string) => x && x.trim().length > 0)
+
+  return parts.join(" ").trim()
 }
 // ────────────────────────────────────────────────────────────────────────────────
 
@@ -88,14 +103,14 @@ const UserProfilePage: React.FC = () => {
 
   const household = state.userProfile.household ?? []
 
-  // DV : seuls les mineurs comptent pour le bonus, on ne vérifie pas le permis
+  // Enfants en droit de visite (mineurs). NB: pas de condition de permis pour le bonus.
   const visitingChildrenCount = React.useMemo(() => {
     return household.reduce((acc: number, m: any) => {
       return acc + (isVisitingChildRole(m.role) && yearsDiff(m.birthDate) < 18 ? 1 : 0)
     }, 0)
   }, [household])
 
-  // Enfants “comptés” : enfant / enfant à charge / garde alternée (<18 + permis valide)
+  // Enfants “comptés” (enfant / enfant à charge / garde alternée) : mineurs + permis valide
   const minorsCount = React.useMemo(() => {
     return household.reduce((acc: number, m: any) => {
       const r = normalizeRole(m.role)
@@ -107,34 +122,43 @@ const UserProfilePage: React.FC = () => {
     }, 0)
   }, [household])
 
-  // Colonne base (0 enfant -> 1 ; n -> min(n,4)+1)
+  // Colonne de base
   const baseCol = React.useMemo<number>(() => {
     const n = Math.max(0, Math.floor(minorsCount))
     return n === 0 ? 1 : Math.min(n, 4) + 1
   }, [minorsCount])
 
-  // Bonus DV : +1 si >= 2 DV ; borne max 5
+  // Bonus DV : +1 si ≥2 enfants en droit de visite (borné à 5)
   const finalCol = React.useMemo<BaremeColumn>(() => {
     const bonus = visitingChildrenCount >= 2 ? 1 : 0
     return Math.min(baseCol + bonus, 5) as BaremeColumn
   }, [baseCol, visitingChildrenCount])
 
-  // Loyer min (limite) depuis le barème et la colonne FINALE
+  // Loyer min (limite barème) d’après le RDU total et la colonne finale
   const minRent = React.useMemo(() => {
-    if (typeof rduTotal !== "number" || rduTotal <= 0) return undefined
+    if (!rduTotal || rduTotal <= 0) return undefined
     return rentLimitFromIncome(rduTotal, finalCol)
   }, [rduTotal, finalCol])
+
+  // Détection LLM (immeuble subventionné) pour badge & navigation
+  const adresseProfil = addressLineFromProfile(state.userProfile)
+  const isSubsidized = React.useMemo(
+    () => (adresseProfil ? isAdresseInImmeubles(adresseProfil) : false),
+    [adresseProfil]
+  )
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
       <div className="max-w-6xl mx-auto space-y-6">
         <HeaderBar
-          isApplicant={state.userProfile.isApplicant}
-          isTenant={state.userProfile.isTenant}
-          onSave={state.savePersonalInfo}
-          onAttestation={() => console.log("Attestation click")}
-          onCopyAddress={state.copyAddressInfo}
-        />
+  isApplicant={true /* ou ton booléen */}
+  isTenant={/* vert ou non, selon ton calcul */}
+  onSave={state.savePersonalInfo}
+  onAttestation={() => console.log("Attestation (demandeur)")}
+  onCopyAddress={state.copyAddressInfo}
+  applicantTo={`/users/${encodeURIComponent(userId ?? "")}`}
+  tenantTo={`/tenants/${encodeURIComponent(userId ?? "")}`}
+/>
 
         <InteractionBar onClick={state.handleInteractionClick} />
 
@@ -186,9 +210,8 @@ const UserProfilePage: React.FC = () => {
                     deadline={state.userProfile.deadline}
                     maxRooms={state.userProfile.maxRooms}
                     minRent={minRent}               // limite loyer (colonne finale)
-                    countedMinors={minorsCount}     // info UI
-                    baremeColumn={finalCol}         // Colonne utilisée par DatesCard
-                    rduForBareme={rduTotal}         // pour afficher la plage RDU si minRent absent
+                    countedMinors={minorsCount}     // alimente l’affichage
+                    rduForBareme={rduTotal}         // plage RDU si minRent absent
                     onChange={state.updateProfile}
                   />
                 </div>
@@ -220,7 +243,6 @@ const UserProfilePage: React.FC = () => {
                   onSwap={state.swapWithPersonalInfo}
                   onQuickAdd={state.addHouseholdMemberQuick}
                   onUpdate={state.updateHouseholdMember}
-                  onLookupByNSS={state.lookupPersonByNSS}
                 />
               </div>
             </section>
