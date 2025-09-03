@@ -17,11 +17,13 @@ import QuickNavSticky, {
 import { useUserProfileState } from "@/features/user-profile/hooks/useUserProfileState";
 import { InteractionDialog } from "@/components/InteractionDialog";
 
+// ➜ le composant minimal “Dernier contrôle” (lecture seule)
+import DernierControleMinimal from "@/features/tenant/components/DernierControleMinimal";
+
 // LLM / immeubles subventionnés
 import { isAdresseInImmeubles } from "@/data/immeubles";
 
-// ─────────────────────────────────────────────────────────
-// helpers (alignés sur la page demandeur)
+// Helpers alignés
 const normalizeRole = (s?: string) =>
   (s || "")
     .toLowerCase()
@@ -29,7 +31,6 @@ const normalizeRole = (s?: string) =>
     .replace(/\s*–\s*/g, " – ")
     .trim();
 
-// reconstruit une “ligne adresse” exploitable par isAdresseInImmeubles
 function addressLineFromProfile(p: any): string {
   const direct =
     p.adresse ?? p.address ?? p.addressLine ?? p.addressLine1 ?? "";
@@ -40,38 +41,51 @@ function addressLineFromProfile(p: any): string {
   ].filter((x: string) => x && x.trim().length > 0);
   return parts.join(" ").trim();
 }
-// ─────────────────────────────────────────────────────────
 
 const TenantProfilePage: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
   const state = useUserProfileState(userId);
-
   const household = state.userProfile.household ?? [];
 
-  // détection LLM (locataire subventionné)
+  // LLM (locataire subventionné)
   const adresseProfil = addressLineFromProfile(state.userProfile);
   const isSubsidized = React.useMemo(
     () => (adresseProfil ? isAdresseInImmeubles(adresseProfil) : false),
     [adresseProfil]
   );
 
-  // Totaux revenus (utile si tu veux en faire quelque chose)
   const [rduTotal, setRduTotal] = React.useState<number>(0);
+
+  // Données “Dernier contrôle” (adapte les champs à ton modèle réel)
+  const last = (state.userProfile as any)?.lastControl ?? {};
+  const lastControlProps = {
+    dateControle: last.dateControle ?? "", // affichera "–" si vide
+    agent: last.agent ?? "",
+    law: (last.law as "1975" | "ANCIENNES" | "2007") ?? "2007",
+    bareme: last.bareme ?? "",
+    reason: (last.reason as "CONFORME" | "SON" | "SUR" | "RTE" | "DIF") ?? "CONFORME",
+    resiliationDate: last.resiliationDate,
+    resiliationPar: last.resiliationPar,
+    resiliationRaison: last.resiliationRaison,
+    avisDepotDate: last.avisDepotDate,
+    quitteLeDate: last.quitteLeDate,
+    prolongations: Array.isArray(last.prolongations) ? last.prolongations : [],
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
       <div className="max-w-6xl mx-auto space-y-6">
         <HeaderBar
-          isApplicant={state.userProfile.isApplicant}
+          isApplicant={!!state.userProfile.isApplicant}
           isTenant={isSubsidized}
           onSave={state.savePersonalInfo}
-          onAttestation={() => console.log("Attestation locataire")}
+          onAttestation={() => console.log("Attestation (locataire)")}
           onCopyAddress={state.copyAddressInfo}
-          applicantTo={`/users/${encodeURIComponent(userId ?? "")}`} // ⇠ retour vue Demandeur
-          // pas besoin de tenantTo ici (on est déjà sur la vue Locataire)
+          applicantTo={`/users/${encodeURIComponent(userId ?? "")}`}
+          tenantTo={isSubsidized ? `/tenants/${encodeURIComponent(userId ?? "")}` : undefined}
         />
 
-        {/* ⬇️ Bloc guichet / téléphone / etc. — tout en haut */}
+        {/* 👇 Bandeau guichet / téléphone / etc. tout en haut */}
         <InteractionBar onClick={state.handleInteractionClick} />
 
         {/* ====== Layout avec sidebar sticky ====== */}
@@ -85,7 +99,7 @@ const TenantProfilePage: React.FC = () => {
                 { id: "section-household-info", label: "Ménage (compteurs)", icon: QuickNavIcons.menage },
                 { id: "section-info", label: "Informations", icon: QuickNavIcons.info },
                 { id: "section-household-manage", label: "Ménage", icon: QuickNavIcons.menage },
-                { id: "section-interactions", label: "Interactions", icon: QuickNavIcons.timeline }, // timeline uniquement
+                { id: "section-interactions", label: "Interactions", icon: QuickNavIcons.timeline },
                 { id: "section-lastcheck", label: "Dernier contrôle", icon: QuickNavIcons.timeline },
                 { id: "section-lease", label: "Bail", icon: QuickNavIcons.docs },
                 { id: "section-income", label: "Revenu", icon: QuickNavIcons.revenus },
@@ -93,7 +107,7 @@ const TenantProfilePage: React.FC = () => {
                 { id: "section-supplement", label: "Supplément loyer", icon: QuickNavIcons.props },
                 { id: "section-suppression", label: "Suppression des aides", icon: QuickNavIcons.props },
                 { id: "section-echeancier", label: "Échéancier cellules logement", icon: QuickNavIcons.timeline },
-                { id: "section-history", label: "Historique", icon: QuickNavIcons.timeline }, // placeholder
+                { id: "section-history", label: "Historique", icon: QuickNavIcons.timeline },
                 { id: "section-session", label: "Séances", icon: QuickNavIcons.timeline },
               ]}
             />
@@ -117,7 +131,7 @@ const TenantProfilePage: React.FC = () => {
               />
             </section>
 
-            {/* 2) Informations personnelles */}
+            {/* 2) 👤 Informations personnelles */}
             <section id="section-info">
               <PersonalInfoCard
                 userProfile={state.userProfile}
@@ -144,16 +158,14 @@ const TenantProfilePage: React.FC = () => {
               />
             </section>
 
-            {/* 4) Interactions — timeline uniquement (le bandeau est en haut) */}
+            {/* 4) Interactions — timeline */}
             <section id="section-interactions">
               <InteractionTimeline />
             </section>
 
-            {/* 5) Dernier contrôle (placeholder) */}
+            {/* 5) Dernier contrôle — lecture seule */}
             <section id="section-lastcheck">
-              <div className="rounded-md border bg-white p-4 text-sm text-slate-600">
-                Dernier contrôle — à intégrer (date, résultat, pièces vérifiées, remarques).
-              </div>
+              <DernierControleMinimal {...lastControlProps} />
             </section>
 
             {/* 6) Bail (placeholder) */}
@@ -228,7 +240,7 @@ const TenantProfilePage: React.FC = () => {
               </div>
             </section>
 
-            {/* 12) Historique (placeholder conservé) */}
+            {/* 12) Historique (placeholder) */}
             <section id="section-history">
               <div className="rounded-md border bg-white p-4 text-sm text-slate-600">
                 Historique — à intégrer (journal global spécifique locataire).

@@ -75,16 +75,14 @@ const isVisitingChildRole = (role?: string) => {
 
 // Reconstruit une “ligne adresse” exploitable par isAdresseInImmeubles
 function addressLineFromProfile(p: any): string {
-  // essaie d’abord les champs “ligne”
   const direct =
-    p.adresse ?? // même clé que dans UsersPage
+    p.adresse ??
     p.address ??
     p.addressLine ??
     p.addressLine1 ??
     ""
   if (direct && direct.trim()) return direct.trim()
 
-  // sinon, tente depuis morceaux
   const parts = [
     [p.street, p.streetNumber].filter(Boolean).join(" ").trim(),
     p.addressComplement ?? p.complement ?? "",
@@ -151,14 +149,14 @@ const UserProfilePage: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
       <div className="max-w-6xl mx-auto space-y-6">
         <HeaderBar
-  isApplicant={true /* ou ton booléen */}
-  isTenant={/* vert ou non, selon ton calcul */}
-  onSave={state.savePersonalInfo}
-  onAttestation={() => console.log("Attestation (demandeur)")}
-  onCopyAddress={state.copyAddressInfo}
-  applicantTo={`/users/${encodeURIComponent(userId ?? "")}`}
-  tenantTo={`/tenants/${encodeURIComponent(userId ?? "")}`}
-/>
+          isApplicant={!!state.userProfile.isApplicant}
+          isTenant={isSubsidized}
+          onSave={state.savePersonalInfo}
+          onAttestation={() => console.log("Attestation (demandeur)")}
+          onCopyAddress={state.copyAddressInfo}
+          applicantTo={`/users/${encodeURIComponent(userId ?? "")}`}
+          tenantTo={isSubsidized ? `/tenants/${encodeURIComponent(userId ?? "")}` : undefined}
+        />
 
         <InteractionBar onClick={state.handleInteractionClick} />
 
@@ -209,9 +207,9 @@ const UserProfilePage: React.FC = () => {
                     lastCertificateDate={state.userProfile.lastCertificateDate}
                     deadline={state.userProfile.deadline}
                     maxRooms={state.userProfile.maxRooms}
-                    minRent={minRent}               // limite loyer (colonne finale)
-                    countedMinors={minorsCount}     // alimente l’affichage
-                    rduForBareme={rduTotal}         // plage RDU si minRent absent
+                    minRent={minRent}
+                    countedMinors={minorsCount}
+                    rduForBareme={rduTotal}
                     onChange={state.updateProfile}
                   />
                 </div>
