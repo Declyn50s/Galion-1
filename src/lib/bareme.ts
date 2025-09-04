@@ -301,7 +301,7 @@ const ROWS = parseTable(TABLE_TSV);
 
 // ==== Searches ===============================================================
 
-// Par revenu (première ligne dont cap >= revenu) — pour rentLimitFromIncome
+// Par revenu (première ligne dont cap >= revenu)
 function findRowByIncomeCeil(income: number, col: BaremeColumn): number {
   const idxCol = col - 1;
   let lo = 0, hi = ROWS.length - 1, ans = ROWS.length - 1;
@@ -313,7 +313,7 @@ function findRowByIncomeCeil(income: number, col: BaremeColumn): number {
   return ans;
 }
 
-// Par loyer (dernière ligne dont limit <= loyer) — pour computeBareme
+// Par loyer (dernière ligne dont limit <= loyer)
 function findRowByRentFloor(rent: number): number {
   let lo = 0, hi = ROWS.length - 1, ans = 0;
   while (lo <= hi) {
@@ -349,23 +349,33 @@ export function incomeRangeForLimit(income: number, col: BaremeColumn): Range {
   return { min: lo, max: hi };
 }
 
-/** 
- * API utilisée par DatesCard : à partir d’un loyer (min) + colonne,
+// helper interne : arrondi à la dizaine supérieure (ex. 754 → 760)
+function ceilTo10(n: number) {
+  return Math.ceil(Math.max(0, Math.floor(n)) / 10) * 10;
+}
+
+/**
+ * À partir d’un loyer (mensuel) + colonne,
  * renvoie la tranche de loyer et la plage RDU autorisée.
+ * NB: le loyer est arrondi à la dizaine supérieure.
  */
-export function computeBareme(rent: number, col: BaremeColumn): {
+export function computeBareme(
+  rent: number,
+  col: BaremeColumn
+): {
   label: string;
   rentRange: Range;
   incomeRange: Range;
   incomeCap: number;
   rowIndex: number;
 } {
-  const idx = findRowByRentFloor(Math.max(0, Math.floor(rent)));
+  const normalizedRent = ceilTo10(rent);
+  const idx = findRowByRentFloor(normalizedRent);
   const row = ROWS[idx];
   const next = ROWS[idx + 1];
 
   const rentMin = row.limit;
-  const rentMax = next ? next.limit - 1 : row.limit; // borne sup ≈ (prochaine limite - 1)
+  const rentMax = next ? next.limit - 1 : row.limit;
 
   const cap = row.caps[col - 1];
   const incomeMin = idx === 0 ? 0 : ROWS[idx - 1].caps[col - 1] + 1;

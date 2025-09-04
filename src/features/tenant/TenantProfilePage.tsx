@@ -1,7 +1,6 @@
 // src/features/tenant/TenantProfilePage.tsx
 import React from "react";
 import { useParams } from "react-router-dom";
-
 import HeaderBar from "@/features/user-profile/components/HeaderBar";
 import IncomeCard from "@/features/user-profile/components/IncomeCard/IncomeCard";
 import PersonalInfoCard from "@/features/user-profile/components/PersonalInfoCard";
@@ -11,15 +10,16 @@ import DocumentManager from "@/features/user-profile/components/DocumentManager/
 import InteractionTimeline from "@/features/user-profile/components/InteractionTimeline/InteractionTimeline";
 import InteractionBar from "@/features/user-profile/components/InteractionBar";
 import LeaseCard, { type LeaseValue } from "@/features/tenant/components/LeaseCard";
+import ControlDialog from "@/features/tenant/components/Control/ControlDialog";
+import DecisionForm from "@/features/tenant/components/Control/DecisionForm";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+
 import QuickNavSticky, {
   QuickNavIcons,
 } from "@/features/user-profile/components/QuickNavSticky/QuickNavSticky";
 
 import { useUserProfileState } from "@/features/user-profile/hooks/useUserProfileState";
 import { InteractionDialog } from "@/components/InteractionDialog";
-
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
 
 // Immeubles (pour détecter LLM + base)
 import { isAdresseInImmeubles, IMMEUBLES, stripDiacritics } from "@/data/immeubles";
@@ -51,17 +51,6 @@ function streetCoreLoose(s: string): string {
     .replace(/[,.;]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-// Extraction rue (core) + n° à partir d'une ligne d'adresse utilisateur
-function splitStreetAndNumber(line?: string) {
-  if (!line) return { street: "", number: "" };
-  const up = stripDiacritics(String(line)).toUpperCase();
-  const m = up.match(/(\d{1,5})[A-Z]?/); // capte le premier numéro (ignore suffixe A/B)
-  const number = m ? m[1] : "";
-  const before = m ? up.slice(0, m.index).trim() : up;
-  const street = streetCoreLoose(before); // ex: "RUE DE BERNE" -> "BERNE"
-  return { street, number };
 }
 
 // essaie de déduire la base (LC.75 / RC.47 / LC.2007 …) depuis l’adresse
@@ -113,7 +102,7 @@ function countAdultsMinorsOccupants(main: any, household: any[]) {
   return { adults, minors };
 }
 
-// Règles de contrôle → résultat texte/flags
+// Résultat renvoyé par ControlDialog (doit correspondre à sa définition)
 type ControlResult = {
   law: LawKind;
   rooms?: number;
@@ -122,74 +111,11 @@ type ControlResult = {
   underOcc?: "none" | "simple" | "notoire";
   overOcc?: "none" | "sur";
   rte?: "unknown" | "lte20" | "gt20";
+  cap?: number;
+  percentOverCap?: number;
   notes: string[];
   actions: string[];
 };
-
-function runTenantControl(args: {
-  law: LawKind;
-  rooms?: number;
-  adults: number;
-  minors: number;
-}): ControlResult {
-  const { law, rooms, adults, minors } = args;
-  const notes: string[] = [];
-  let underOcc: ControlResult["underOcc"] = "none";
-  let overOcc: ControlResult["overOcc"] = "none";
-
-  // Hypothèses d’occupation
-  if (typeof rooms === "number" && rooms > 0) {
-    const unitsUnder = adults + Math.ceil(minors / 2);
-    const diffUnder = rooms - unitsUnder;
-    if (diffUnder >= 2) underOcc = "notoire";
-    else if (diffUnder >= 1) underOcc = "simple";
-
-    const diffOver = adults - rooms; // mineurs exclus
-    if (diffOver >= 2) overOcc = "sur";
-  } else {
-    notes.push("Nombre de pièces inconnu → évaluer l’occupation nécessite le nombre de pièces du bail.");
-  }
-
-  const rte: ControlResult["rte"] = "unknown";
-
-  const actions: string[] = [];
-  if (underOcc === "notoire") {
-    actions.push("Sous-occupation notoire (≥ 2 unités en moins).");
-    if (law === "RC") {
-      actions.push("Anciennes lois (RC 47/53/65) : résiliation du bail + supplément 20% du loyer net.");
-    } else if (law === "LC.75") {
-      actions.push("LC.75 : résiliation du bail + suppression des aides (commune/canton/AS selon cas).");
-    } else if (law === "LC.2007") {
-      actions.push("LC.2007 : résiliation du bail + suppression des aides.");
-    }
-  } else if (underOcc === "simple") {
-    actions.push("Sous-occupation simple (1 unité en moins).");
-    if (law === "RC") {
-      actions.push("Anciennes lois (RC 47/53/65) : supplément 20% du loyer net.");
-    } else if (law === "LC.75") {
-      actions.push("LC.75 : suppression partielle/totale des aides.");
-    } else if (law === "LC.2007") {
-      actions.push("LC.2007 : pas de suppression d’aides.");
-    }
-  }
-
-  if (overOcc === "sur") {
-    actions.push("Sur-occupation (≥ 2 unités adultes de plus que le nombre de pièces).");
-    actions.push("Mesure à qualifier par la régie/autorité (peut justifier une résiliation).");
-  }
-
-  if (rte === "unknown") {
-    actions.push("RTE : données manquantes (loyer net du bail et/ou cap barème).");
-    actions.push("• Pour < 20 % : RC = +50% loyer net (trimestriel) / LC.75 = suppression (dégressive) / LC.2007 = aides maintenues.");
-    actions.push("• Pour > 20 % : RC = +50% loyer net + résiliation / LC.75 = suppression totale + AS + résiliation / LC.2007 = suppression aides (6 mois) + AS immédiate + résiliation.");
-  }
-
-  actions.push("Exceptions :");
-  actions.push("• DM4 Concierge (≥60%): dépassement admissible jusqu’à 40%.");
-  actions.push("• DM5 AVS seul en 3 pièces après décès/départ conjoint: maintien possible.");
-
-  return { law, rooms, adults, minors, underOcc, overOcc, rte, notes, actions };
-}
 // ─────────────────────────────────────────────────────────
 
 const TenantProfilePage: React.FC = () => {
@@ -203,15 +129,24 @@ const TenantProfilePage: React.FC = () => {
     () => (adresseProfil ? isAdresseInImmeubles(adresseProfil) : false),
     [adresseProfil]
   );
-  const base = React.useMemo(
-    () => (adresseProfil ? guessBaseFromImmeubles(adresseProfil) : null),
-    [adresseProfil]
-  );
+  const base = React.useMemo(() => (adresseProfil ? guessBaseFromImmeubles(adresseProfil) : null), [adresseProfil]);
   const law = lawFromBase(base);
 
   // === Adresse → bail : rue + n° extraits depuis les infos perso ===
-  const { street: streetFromProfile, number: numberFromProfile } =
-    React.useMemo(() => splitStreetAndNumber(adresseProfil), [adresseProfil]);
+  const splitStreetAndNumber = React.useCallback((line?: string) => {
+    if (!line) return { street: "", number: "" };
+    const up = stripDiacritics(String(line)).toUpperCase();
+    const m = up.match(/(\d{1,5})[A-Z]?/);
+    const number = m ? m[1] : "";
+    const before = m ? up.slice(0, m.index!).trim() : up;
+    const street = streetCoreLoose(before);
+    return { street, number };
+  }, []);
+
+  const { street: streetFromProfile, number: numberFromProfile } = React.useMemo(
+    () => splitStreetAndNumber(adresseProfil),
+    [adresseProfil, splitStreetAndNumber]
+  );
 
   // État local du bail (éditable)
   const initialLease = React.useMemo<LeaseValue>(
@@ -219,6 +154,8 @@ const TenantProfilePage: React.FC = () => {
       address: streetFromProfile, // ex: "BERNE"
       entry: numberFromProfile, // ex: "9"
       rooms: (state.userProfile as any).maxRooms,
+      // IMPORTANT: LeaseCard doit exposer rentNetMonthly
+      rentNetMonthly: (state.userProfile as any).rentNetMonthly ?? undefined,
     }),
     [streetFromProfile, numberFromProfile, state.userProfile]
   );
@@ -237,10 +174,7 @@ const TenantProfilePage: React.FC = () => {
   }, [streetFromProfile, numberFromProfile]);
 
   const handleLeaseChange = (next: LeaseValue) => {
-    if (
-      next.address !== lease.address ||
-      String(next.entry ?? "") !== String(lease.entry ?? "")
-    ) {
+    if (next.address !== lease.address || String(next.entry ?? "") !== String(lease.entry ?? "")) {
       userEditedLeaseAddressRef.current = true;
     }
     setLease(next);
@@ -253,16 +187,16 @@ const TenantProfilePage: React.FC = () => {
     [state.userProfile, household]
   );
 
-  const rooms: number | undefined = (state.userProfile as any).maxRooms;
+  // Exceptions toggles
+  const [dm4Concierge, setDm4Concierge] = React.useState(false);
+  const [dm5AVSSeul3p, setDm5AVSSeul3p] = React.useState(false);
 
   const [controlOpen, setControlOpen] = React.useState(false);
-  const [control, setControl] = React.useState<ControlResult | null>(null);
+  const handleRunControl = () => setControlOpen(true);
 
-  const handleRunControl = () => {
-    const result = runTenantControl({ law, rooms, adults, minors });
-    setControl(result);
-    setControlOpen(true);
-  };
+  // Modale Décision (après contrôle)
+  const [decisionOpen, setDecisionOpen] = React.useState(false);
+  const [controlSnapshot, setControlSnapshot] = React.useState<ControlResult | null>(null);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
@@ -378,38 +312,42 @@ const TenantProfilePage: React.FC = () => {
             {/* 7) Revenu */}
             <section id="section-income">
               <IncomeCard
-                people={[
-                  {
-                    id: "main",
-                    role: "demandeur",
-                    name: `${state.userProfile.firstName} ${state.userProfile.lastName}`,
-                    birthDate: state.userProfile.birthDate,
-                    nationality: state.userProfile.nationality,
-                    residencePermit: state.userProfile.residencePermit,
-                    permitExpiryDate: state.userProfile.permitExpiryDate,
-                  },
-                  ...household.map((m: any) => {
-                    const r = normalizeRole(m.role);
-                    const role =
-                      r === "conjoint"
-                        ? "conjoint"
-                        : r.startsWith("enfant")
-                        ? "enfant"
-                        : "autre";
-                    return {
-                      id: m.id,
-                      role,
-                      name: m.name,
-                      birthDate: m.birthDate,
-                      nationality: m.nationality,
-                      residencePermit: m.residencePermit,
-                      permitExpiryDate: m.permitExpiryDate,
-                    };
-                  }),
-                ]}
-                countMode="counted"
-                onTotalsChange={({ totalRDUHousehold }) => setRduTotal(totalRDUHousehold)}
-              />
+  people={[
+    {
+      id: "main",
+      role: "demandeur",
+      name: `${state.userProfile.firstName} ${state.userProfile.lastName}`,
+      birthDate: state.userProfile.birthDate,
+      nationality: state.userProfile.nationality,
+      residencePermit: state.userProfile.residencePermit,
+      permitExpiryDate: state.userProfile.permitExpiryDate,
+    },
+    ...household.map((m: any) => {
+      const r = normalizeRole(m.role);
+      const role = r === "conjoint" ? "conjoint" : r.startsWith("enfant") ? "enfant" : "autre";
+      return {
+        id: m.id,
+        role,
+        name: m.name,
+        birthDate: m.birthDate,
+        nationality: m.nationality,
+        residencePermit: m.residencePermit,
+        permitExpiryDate: m.permitExpiryDate,
+      };
+    }),
+  ]}
+  countMode="counted"
+  onTotalsChange={({ totalRDUHousehold }) => setRduTotal(totalRDUHousehold)}
+  tenantContext={{
+    enabled: true,
+    rentNetMonthly: lease?.rentNetMonthly ?? undefined, // loyer bail
+  }}
+  // Optionnel : si tu veux savoir quelle colonne de barème a été retenue
+  // onBaremeChange={({ column, minorsCount, mode, description }) => {
+  //   console.log({ column, minorsCount, mode, description });
+  // }}
+/>
+
             </section>
 
             {/* 8) Documents */}
@@ -456,49 +394,69 @@ const TenantProfilePage: React.FC = () => {
       </div>
 
       {/* Contrôle — résultat */}
-      <Dialog open={controlOpen} onOpenChange={setControlOpen}>
-        <DialogContent className="sm:max-w-xl">
+      <ControlDialog
+        open={controlOpen}
+        onOpenChange={setControlOpen}
+        law={law}
+        adults={adults}
+        minors={minors}
+        rooms={lease?.rooms}
+        rentNetMonthly={lease?.rentNetMonthly}
+        rduTotal={rduTotal}
+        exceptions={{ dm4Concierge, dm5AVSSeul3p }}
+        onChange={({ rooms, rentNetMonthly, rduTotal, exceptions }) => {
+          if (typeof rooms !== "undefined") {
+            setLease((prev) => ({ ...prev, rooms }));
+          }
+          if (typeof rentNetMonthly !== "undefined") {
+            setLease((prev) => ({ ...prev, rentNetMonthly }));
+          }
+          if (typeof rduTotal !== "undefined") {
+            setRduTotal(rduTotal);
+          }
+          if (exceptions) {
+            setDm4Concierge(!!exceptions.dm4Concierge);
+            setDm5AVSSeul3p(!!exceptions.dm5AVSSeul3p);
+          }
+        }}
+        onRun={(result) => {
+          console.log("Résultat contrôle:", result);
+          setControlSnapshot(result); // snapshot pour pré-remplir la décision
+          setDecisionOpen(true); // ouvre la modale Décision
+          // setControlOpen(false); // décommente si tu veux fermer la modale de contrôle automatiquement
+        }}
+      />
+
+      {/* Décision suite au contrôle */}
+      <Dialog open={decisionOpen} onOpenChange={setDecisionOpen}>
+        <DialogContent className="sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Contrôle du locataire</DialogTitle>
+            <DialogTitle>Décision suite au contrôle</DialogTitle>
           </DialogHeader>
-        {control && (
-          <div className="space-y-3 text-sm">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline">Régime&nbsp;: {control.law}</Badge>
-              {typeof control.rooms === "number" && (
-                <Badge variant="outline">{control.rooms} pièces</Badge>
-              )}
-              <Badge variant="outline">{control.adults} adulte(s)</Badge>
-              <Badge variant="outline">{control.minors} mineur(s)</Badge>
-            </div>
 
-            <ul className="list-disc pl-5 space-y-1">
-              {control.underOcc === "notoire" && <li>Sous-occupation notoire (≥ 2 unités en moins).</li>}
-              {control.underOcc === "simple" && <li>Sous-occupation simple (1 unité en moins).</li>}
-              {control.underOcc === "none" && <li>Aucune sous-occupation détectée.</li>}
-              {control.overOcc === "sur" && <li>Sur-occupation (≥ 2 unités adultes au-dessus des pièces).</li>}
-              {control.overOcc !== "sur" && <li>Aucune sur-occupation détectée.</li>}
-              {control.rte === "unknown" && <li>RTE : données bail/barème manquantes (loyer net/colonne/cap).</li>}
-            </ul>
-
-            {control.notes.length > 0 && (
-              <div className="text-slate-500">
-                {control.notes.map((n, i) => (
-                  <div key={i}>• {n}</div>
-                ))}
-              </div>
-            )}
-
-            <div className="mt-2">
-              <div className="font-medium mb-1">Conséquences / recommandations</div>
-              <ul className="list-disc pl-5 space-y-1">
-                {control.actions.map((a, i) => (
-                  <li key={i}>{a}</li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        )}
+          {controlSnapshot && (
+            <DecisionForm
+              law={law}
+              adults={adults}
+              minors={minors}
+              rooms={lease?.rooms}
+              son={controlSnapshot.underOcc ?? "none"}
+              rte={controlSnapshot.rte ?? "unknown"}
+              dif={false} // coche à true si cas DIF dans le dossier
+              cap={controlSnapshot.cap}
+              percentOverCap={controlSnapshot.percentOverCap}
+              defaultDates={{
+                notification: new Date().toISOString().slice(0, 10),
+                startDate: new Date().toISOString().slice(0, 10),
+              }}
+              onSubmit={(decision) => {
+                console.log("Décision enregistrée", decision);
+                // ➜ ici: persist (API/DB), génération courrier, création tâches de suivi, etc.
+                setDecisionOpen(false);
+              }}
+              onCancel={() => setDecisionOpen(false)}
+            />
+          )}
         </DialogContent>
       </Dialog>
 

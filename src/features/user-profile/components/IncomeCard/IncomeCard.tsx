@@ -1,3 +1,4 @@
+// src/features/user-profile/components/IncomeCard/IncomeCard.tsx
 import React, { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
@@ -31,6 +32,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+
+// ✅ barème officiel (plafonds RDU selon loyer & colonne)
+import { computeBareme, type BaremeColumn } from "@/lib/bareme"
 
 /* ---------- helpers permis (mêmes règles que HouseholdCounters) ---------- */
 const toDate = (s?: string) => {
@@ -85,12 +89,22 @@ export type PeopleItem = {
   permitExpiryDate?: string
 }
 
+/** Contexte optionnel — affichage des métriques barème pour le locataire (TenantProfilePage). */
+type TenantContext = {
+  /** Active le bloc “Calcul barème (locataire)” */
+  enabled?: boolean
+  /** Loyer net mensuel du bail (CHF) */
+  rentNetMonthly?: number | null
+}
+
 /** API : tu passes les membres du ménage (people). L’état vit ici (uncontrolled). */
 export default function IncomeCard({
   people,
   onTotalsChange,
   countMode = "counted", // "table" | "all" | "counted"
   onBaremeChange,
+  /** ➜ Active le bloc spécifique locataire (TenantProfilePage uniquement) */
+  tenantContext,
 }: {
   people: PeopleItem[]
   onTotalsChange?: (payload: {
@@ -106,6 +120,7 @@ export default function IncomeCard({
     description: string
     minorsCount: number
   }) => void
+  tenantContext?: TenantContext
 }) {
   /* --- IMPORTANT : hydrate/merge quand `people` arrive ou change --- */
   const [persons, setPersons] = useState<Person[]>([])
@@ -353,6 +368,28 @@ export default function IncomeCard({
       return acc + (isPermitValid(m.nationality, m.residencePermit, m.permitExpiryDate) ? 1 : 0)
     }, 0)
   }, [people, persons.length, countMode])
+
+  // ——— Bloc “Calcul barème (locataire)” ———
+  const rentNetMonthly = tenantContext?.rentNetMonthly ?? null
+  const baremeInfo = useMemo(() => {
+    if (!tenantContext?.enabled || !rentNetMonthly || rentNetMonthly <= 0) return null
+    const col = Math.min(5, Math.max(1, baremeSelected)) as BaremeColumn
+    return computeBareme(rentNetMonthly, col)
+  }, [tenantContext?.enabled, rentNetMonthly, baremeSelected])
+
+  const capIncome = baremeInfo?.incomeCap ?? null
+  const rentFloor = baremeInfo?.rentRange.min ?? null
+
+  const depassementAbs = useMemo(() => {
+    if (!capIncome) return null
+    return Math.max(0, totals.totalRDUHousehold - capIncome)
+  }, [capIncome, totals.totalRDUHousehold])
+
+  const depassementPct = useMemo(() => {
+    if (!capIncome || capIncome <= 0) return null
+    const pct = ((totals.totalRDUHousehold - capIncome) / capIncome) * 100
+    return Math.max(0, Math.round(pct * 100) / 100) // 2 décimales
+  }, [capIncome, totals.totalRDUHousehold])
 
   // pour désactiver les membres déjà pris dans une autre carte
   const usedIds = new Set(persons.map(p => p.id))
@@ -878,6 +915,35 @@ export default function IncomeCard({
               </div>
             </div>
           </div>
+
+          {/* ───────────────── Bloc “Calcul barème (locataire)” ───────────────── */}
+          {tenantContext?.enabled && (
+            <div className="rounded-md border px-3 py-3 bg-white/70 space-y-3 mt-3">
+              <div className="text-sm font-medium">🔎 Calcul barème (locataire)</div>
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                <SummaryField label="Nb de pers.">{displayPeopleCount}</SummaryField>
+                <SummaryField label="Enfants">{countedMinors}</SummaryField>
+                <SummaryField label="Loyer bail">{rentNetMonthly ? chf(rentNetMonthly) : "—"}</SummaryField>
+                <SummaryField label="Loyer selon barème">{rentFloor != null ? chf(rentFloor) : "—"}</SummaryField>
+                <SummaryField label="Montant RDU-LHPS">{chf(totals.totalRDUHousehold)}</SummaryField>
+                <SummaryField label="Revenu plafond (barème)">{capIncome != null ? chf(capIncome) : "—"}</SummaryField>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                <SummaryField label="Dépassement (CHF)">{depassementAbs != null ? chf(depassementAbs) : "—"}</SummaryField>
+                <SummaryField label="En %">
+                  {depassementPct != null ? `${depassementPct.toFixed(2)} %` : "—"}
+                </SummaryField>
+                {/* Champs illustratifs (placeholder calcul métier futur) */}
+                <SummaryField label="Supplément théorique 100%">
+                  {rentNetMonthly && rentFloor != null ? chf(Math.max(0, rentNetMonthly - rentFloor)) : "—"}
+                </SummaryField>
+                <SummaryField label="Supplément calculé">—</SummaryField>
+                <SummaryField label="Supplément sur bail">—</SummaryField>
+                <SummaryField label="Loyer à payer">—</SummaryField>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

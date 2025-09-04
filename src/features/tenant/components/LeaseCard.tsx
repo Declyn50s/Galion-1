@@ -1,3 +1,4 @@
+// LeaseCard.tsx
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,9 +18,10 @@ import {
   Calculator,
   Factory,
   MapPin,
+  Info,
 } from "lucide-react";
 
-// On s'appuie sur tes données immeubles existantes
+// Données immeubles existantes (inchangé)
 import { IMMEUBLES, stripDiacritics } from "@/data/immeubles";
 
 // ─────────────────────────────────────────────────────────
@@ -62,8 +64,6 @@ const TYPES = new Set([
   "CTE",
 ]);
 const ARTICLES = new Set(["DE", "DU", "DES", "LA", "LE", "L'", "D'"]);
-
-/** "Rue de la Borde 32" -> "BORDE" */
 function streetCore(input: string): string {
   const s = U(input).replace(/[,.;]/g, " ");
   const parts = s.split(/\s+/).filter(Boolean);
@@ -72,16 +72,11 @@ function streetCore(input: string): string {
   );
   return kept.join(" ").replace(/\s+/g, " ").trim();
 }
-
-/** Premier numéro trouvé (lettres ignorées) */
 function firstHouseNumber(input: string): number | null {
   const m = U(input).match(/(\d{1,5})/);
   return m ? parseInt(m[1], 10) : null;
 }
-
 type Range = [number, number];
-
-/** "26-30", "32", "12:14/16B-22B", "8a10", "51-57 BIS", "2-6 + 8-12" -> plages fusionnées */
 function rangesFromAdresse(adr: string): Range[] {
   let s = U(adr);
   s = s.replace(/(\d+)A(\d+)/g, "$1-$2"); // 8A10 -> 8-10
@@ -113,36 +108,26 @@ function rangesFromAdresse(adr: string): Range[] {
   }
   return merged;
 }
-
-/** Déduit la base légale depuis une adresse utilisateur (ex: "BERNE 9") */
 function guessBaseFromImmeubles(userAdresse: string): LawBase | null {
   const core = streetCore(userAdresse);
   if (!core) return null;
   const n = firstHouseNumber(userAdresse);
 
-  // Filtrer toutes les lignes de la même rue
   const rows = IMMEUBLES.filter((r) => streetCore(r.adresse) === core);
   if (rows.length === 0) return null;
 
   if (n == null) {
-    return rows[0].base as LawBase; // meilleure hypothèse
+    return rows[0].base as LawBase;
   }
 
   for (const r of rows) {
     const ranges = rangesFromAdresse(r.adresse);
     if (ranges.some(([a, b]) => n >= a && n <= b)) return r.base as LawBase;
   }
-  return rows[0].base as LawBase; // fallback doux
+  return rows[0].base as LawBase;
 }
-
-/** Regroupement RC.* -> "RC", sinon base inchangée, sinon "UNKNOWN" */
-function lawGroupFromBase(base?: string | null):
-  | "RC"
-  | "LC.53"
-  | "LC.65"
-  | "LC.75"
-  | "LC.2007"
-  | "UNKNOWN" {
+type LawGroup = "RC" | "LC.53" | "LC.65" | "LC.75" | "LC.2007" | "UNKNOWN";
+function lawGroupFromBase(base?: string | null): LawGroup {
   const b = String(base || "").toUpperCase();
   if (!b) return "UNKNOWN";
   if (b.startsWith("RC.")) return "RC";
@@ -152,7 +137,222 @@ function lawGroupFromBase(base?: string | null):
   if (b === "LC.2007") return "LC.2007";
   return "UNKNOWN";
 }
+
 // ─────────────────────────────────────────────────────────
+// Domaine métier : motifs / prolongations / règles
+
+export type TerminationReason =
+  | "SON_NOTOIRE"
+  | "SOS_SIMPLE"
+  | "RTE"
+  | "DIF"
+  | "SUR_OCCUPATION"
+  | "AUTRE";
+
+export type ProlongationType = "AUCUNE" | "CONVENTION" | "AUDIENCE";
+
+type AidState = "maintenue" | "partielle" | "supprimée" | "non-applicable";
+
+type RuleOutcome = {
+  resiliation: boolean;
+  supplementPercent?: number; // ex. 20 ou 50
+  supplementNote?: string;
+  supplementIsQuarterly?: boolean;
+  aides: {
+    cantonales: { etat: AidState; delaiMois?: number };
+    communales: { etat: AidState; delaiMois?: number };
+    AS: { etat: AidState; delaiMois?: number };
+  };
+  notes: string[];
+};
+
+// Exceptions
+type Exceptions = {
+  conciergePro60?: boolean;
+  avsSeul3Pieces?: boolean;
+};
+
+// ─────────────────────────────────────────────────────────
+// Règles métier condensées (basées sur ta procédure)
+
+function computeRules(params: {
+  lawGroup: LawGroup;
+  reason?: TerminationReason;
+  overrunPercent?: number; // dépassement RDU (%)
+  sonIsNotoire?: boolean; // redondant si reason = SON_NOTOIRE
+  exceptions?: Exceptions;
+}): RuleOutcome {
+  const { lawGroup, reason, overrunPercent = 0, sonIsNotoire, exceptions } = params;
+
+  const OUT: RuleOutcome = {
+    resiliation: false,
+    supplementPercent: undefined,
+    supplementNote: undefined,
+    supplementIsQuarterly: true,
+    aides: {
+      cantonales: { etat: "non-applicable" },
+      communales: { etat: "non-applicable" },
+      AS: { etat: "non-applicable" },
+    },
+    notes: [],
+  };
+
+  const isRC = lawGroup === "RC" || lawGroup === "LC.53" || lawGroup === "LC.65"; // anciennes lois
+  const isLC75 = lawGroup === "LC.75";
+  const isLC2007 = lawGroup === "LC.2007";
+
+  // Exceptions (directive 4 & 5)
+  const conciergeTol40 = !!exceptions?.conciergePro60;
+  const avsTol = !!exceptions?.avsSeul3Pieces;
+
+  // DIF (devoir d'info) → décision de gestion (pas d'automatismes aides), possible résiliation si manquement grave
+  if (reason === "DIF") {
+    OUT.notes.push("DIF : manquement au devoir d’information (décision au cas par cas).");
+    OUT.aides = {
+      cantonales: { etat: "non-applicable" },
+      communales: { etat: "non-applicable" },
+      AS: { etat: "non-applicable" },
+    };
+    return OUT;
+  }
+
+  // SUR-OCCUPATION (2 unités de plus que nb pièces; enfants mineurs non comptés)
+  if (reason === "SUR_OCCUPATION") {
+    OUT.resiliation = true;
+    OUT.notes.push("Sur-occupation : résiliation possible selon constat.");
+    // aides : non spécifié comme supprimées d’office ⇒ pas de changement auto
+    return OUT;
+  }
+
+  // SOS (simple / notoire)
+  const isSON = reason === "SOS_SIMPLE" || reason === "SON_NOTOIRE" || sonIsNotoire;
+  const notoire = reason === "SON_NOTOIRE" || !!sonIsNotoire;
+
+  if (isSON) {
+    if (isRC) {
+      // Anciennes lois : pas d’aides C/C/AS
+      OUT.aides = {
+        cantonales: { etat: "non-applicable" },
+        communales: { etat: "non-applicable" },
+        AS: { etat: "non-applicable" },
+      };
+      OUT.supplementPercent = 20;
+      OUT.supplementNote = "Supplément 20% du loyer net (trimestriel)";
+      if (notoire) OUT.resiliation = true;
+      OUT.notes.push("Anciennes lois : pas d’aides prévues; supplément 20%. SON notoire = résiliation.");
+    } else if (isLC2007) {
+      // Loi 2007 : SOS simple OK sans suppression ; SON notoire = résiliation + suppression aides
+      OUT.supplementPercent = reason === "SOS_SIMPLE" ? undefined : undefined;
+      if (notoire) {
+        OUT.resiliation = true;
+        OUT.aides = {
+          cantonales: { etat: "supprimée", delaiMois: 6 },
+          communales: { etat: "supprimée", delaiMois: 6 },
+          AS: { etat: "supprimée", delaiMois: 1 },
+        };
+        OUT.notes.push("Loi 2007 : SON notoire → résiliation + suppression aides (C/C après 6 mois, AS immédiate).");
+      } else {
+        OUT.aides = {
+          cantonales: { etat: "maintenue" },
+          communales: { etat: "maintenue" },
+          AS: { etat: "maintenue" },
+        };
+        OUT.notes.push("Loi 2007 : SOS simple → aides maintenues.");
+      }
+    } else if (isLC75) {
+      // Loi 75 : SOS simple = suppression aides ; SON notoire = résiliation + suppression aides
+      if (notoire) OUT.resiliation = true;
+      OUT.aides = {
+        cantonales: { etat: "supprimée", delaiMois: notoire ? 0 : 0 },
+        communales: { etat: "supprimée", delaiMois: notoire ? 0 : 0 },
+        AS: { etat: notoire ? "supprimée" : "maintenue", delaiMois: notoire ? 0 : undefined },
+      };
+      OUT.notes.push(
+        `Loi 75 : SON ${notoire ? "notoire → résiliation + suppression aides" : "simple → suppression aides (AS maintenue)"}`
+      );
+    }
+    // Abaissements/AS1/AS2 (résumé) — affichage informatif seulement
+    OUT.notes.push("AS : selon barème (AS1 maintenu; AS2 supprimé si SON notoire en L2007/L75).");
+    return OUT;
+  }
+
+  // RTE (Revenus trop élevés)
+  if (reason === "RTE") {
+    const dep = overrunPercent;
+    const seuil = conciergeTol40 ? 40 : 20; // concierge pro : tolérance 40%
+    const depGT = dep > seuil;
+
+    if (isRC) {
+      // Anciennes lois :
+      if (dep > 20) {
+        OUT.resiliation = true;
+        OUT.supplementPercent = 50;
+        OUT.supplementNote = "Supplément 50% du loyer net (trimestriel) + résiliation";
+        OUT.aides = {
+          cantonales: { etat: "non-applicable" },
+          communales: { etat: "non-applicable" },
+          AS: { etat: "non-applicable" },
+        };
+        OUT.notes.push("RC : >20% → résiliation + supplément 50% (trimestriel).");
+      } else if (dep > 0) {
+        OUT.supplementPercent = 50;
+        OUT.supplementNote = "Supplément 50% du loyer net (trimestriel)";
+        OUT.aides = {
+          cantonales: { etat: "non-applicable" },
+          communales: { etat: "non-applicable" },
+          AS: { etat: "non-applicable" },
+        };
+        OUT.notes.push("RC : ≤20% → supplément 50% (trimestriel).");
+      }
+    } else if (isLC75) {
+      if (depGT) {
+        OUT.resiliation = true;
+        OUT.aides = {
+          cantonales: { etat: "supprimée" },
+          communales: { etat: "supprimée" },
+          AS: { etat: "supprimée" },
+        };
+        OUT.notes.push(`Loi 75 : >${seuil}% → suppression totale aides + résiliation.`);
+      } else if (dep > 0) {
+        OUT.aides = {
+          cantonales: { etat: "partielle" },
+          communales: { etat: "partielle" },
+          AS: { etat: "maintenue" },
+        };
+        OUT.notes.push("Loi 75 : ≤20% → suppression partielle/totale C/C progressive; AS maintenue.");
+      }
+    } else if (isLC2007) {
+      if (depGT) {
+        OUT.resiliation = true;
+        OUT.aides = {
+          cantonales: { etat: "supprimée", delaiMois: 6 },
+          communales: { etat: "supprimée", delaiMois: 6 },
+          AS: { etat: "supprimée", delaiMois: 1 },
+        };
+        OUT.notes.push(`Loi 2007 : >${seuil}% → suppression C/C après 6 mois + AS immédiate + résiliation.`);
+      } else if (dep > 0) {
+        OUT.aides = {
+          cantonales: { etat: "maintenue" },
+          communales: { etat: "maintenue" },
+          AS: { etat: "maintenue" },
+        };
+        OUT.notes.push("Loi 2007 : ≤20% → aides maintenues (C/C/AS).");
+      }
+    }
+
+    // Rappel RCOL art.25 (supplément < 120 CHF/an non perçu)
+    OUT.notes.push("Art. 25 RCOL : pas de perception si supplément annuel < CHF 120.–.");
+    // Directive 3 (résiliation si RDU > 20% du plafond) déjà couverte par cas >20%.
+    return OUT;
+  }
+
+  // AUTRE → neutre par défaut
+  OUT.notes.push("Motif 'Autre' : évaluer manuellement.");
+  return OUT;
+}
+
+// ─────────────────────────────────────────────────────────
+// Types du composant
 
 export type LeaseValue = {
   startDate?: string;
@@ -160,8 +360,8 @@ export type LeaseValue = {
   legalBase?: LawBase; // détectée automatiquement si adresse fournie
   lpg?: boolean;
   building?: string | number;
-  address?: string; // ex: "BERNE"
-  entry?: string | number; // ex: "9" -> "BERNE 9"
+  address?: string;
+  entry?: string | number;
   aptNumber?: string | number;
   floor?: string;
   rooms?: number;
@@ -178,14 +378,21 @@ export type LeaseValue = {
   bailRentAlone?: number;
 
   terminationDate?: string;
-  terminationVisa?: "Ordinaire" | "Extraordinaire" | "Pour sous-occupation" | "Autre";
+
+  // 🔁 Remplacement : ancien "terminationVisa" → nouveau "terminationReason"
+  terminationReason?: TerminationReason;
+  prolongationType?: ProlongationType;
   terminationEffective?: boolean;
   terminationProlongationEnd?: string;
 
-  overrunPercent?: number;
+  overrunPercent?: number; // RDU dépassement %
   newSupplement?: number;
 
   as1p?: [number, number, number, number];
+
+  // Exceptions
+  conciergePro60?: boolean;
+  avsSeul3Pieces?: boolean;
 
   agency?: {
     name?: string;
@@ -195,6 +402,9 @@ export type LeaseValue = {
     city?: string;
     email?: string;
   };
+
+  // 🧯 rétrocompat : si des données anciennes existent
+  terminationVisa?: "Ordinaire" | "Extraordinaire" | "Pour sous-occupation" | "Autre";
 };
 
 export type LeaseCardProps = {
@@ -241,6 +451,8 @@ const MoneyInput: React.FC<{
 const numberOr = (v?: number, def = 0) =>
   typeof v === "number" && !Number.isNaN(v) ? v : def;
 
+// ─────────────────────────────────────────────────────────
+
 const LeaseCard: React.FC<LeaseCardProps> = ({
   value,
   onChange,
@@ -251,31 +463,47 @@ const LeaseCard: React.FC<LeaseCardProps> = ({
 }) => {
   const v: LeaseValue = React.useMemo(
     () => ({
-      legalBase: value?.legalBase, // pas de valeur en dur
-      lpg: false,
-      floor: "rez",
+      legalBase: value?.legalBase,
+      lpg: value?.lpg ?? false,
+      floor: value?.floor ?? "rez",
       rooms: value?.rooms,
       rentNetMonthly: value?.rentNetMonthly,
       chargesMonthly: value?.chargesMonthly,
       bailRentAlone: value?.bailRentAlone,
       as1p: value?.as1p ?? [0, 0, 0, 0],
+      prolongationType: value?.prolongationType ?? "AUCUNE",
+      terminationReason: value?.terminationReason,
+      conciergePro60: value?.conciergePro60 ?? false,
+      avsSeul3Pieces: value?.avsSeul3Pieces ?? false,
       ...value,
     }),
     [value]
   );
 
+  // Map rétrocompat "terminationVisa" → "terminationReason"
+  React.useEffect(() => {
+    if (v.terminationReason) return;
+    if (!value?.terminationVisa) return;
+    const map: Record<NonNullable<LeaseValue["terminationVisa"]>, TerminationReason> = {
+      Ordinaire: "AUTRE",
+      Extraordinaire: "AUTRE",
+      "Pour sous-occupation": "SOS_SIMPLE",
+      Autre: "AUTRE",
+    };
+    const guess = map[value.terminationVisa];
+    if (guess) onChange?.({ ...v, terminationReason: guess });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const set = (patch: Partial<LeaseValue>) => onChange?.({ ...v, ...patch });
 
   // ===== Détection auto de la base depuis l'adresse du bail =====
-  // Combine "rue + entrée" si les deux existent
   const combinedAdresse = React.useMemo(
     () => [v.address, v.entry].filter(Boolean).join(" ").trim(),
     [v.address, v.entry]
   );
 
-  // L'utilisateur peut forcer la base → on n'écrase pas tant qu'il n'appuie pas sur "Auto"
   const manualBaseRef = React.useRef(false);
-
   const suggestedBase = React.useMemo(
     () => (combinedAdresse ? guessBaseFromImmeubles(combinedAdresse) : null),
     [combinedAdresse]
@@ -311,6 +539,55 @@ const LeaseCard: React.FC<LeaseCardProps> = ({
   const totalMonthly = net + charges;
 
   const lawGroup = lawGroupFromBase(v.legalBase);
+
+  // Règles automatiques
+  const outcome = React.useMemo(
+    () =>
+      computeRules({
+        lawGroup,
+        reason: v.terminationReason,
+        overrunPercent: v.overrunPercent,
+        sonIsNotoire: v.terminationReason === "SON_NOTOIRE",
+        exceptions: { conciergePro60: v.conciergePro60, avsSeul3Pieces: v.avsSeul3Pieces },
+      }),
+    [lawGroup, v.terminationReason, v.overrunPercent, v.conciergePro60, v.avsSeul3Pieces]
+  );
+
+  // Supplément auto (sauf si saisi manuellement)
+  const autoSupplementMonthly = React.useMemo(() => {
+    if (!outcome.supplementPercent) return undefined;
+    const pct = outcome.supplementPercent / 100;
+    const s = Math.round(net * pct);
+    // RCOL art.25 : si annuel < 120, pas perçu
+    const annual = s * 12;
+    if (annual < 120) return 0;
+    return s;
+  }, [outcome.supplementPercent, net]);
+
+  // Si l’utilisateur saisit manuellement un supplément, on l’affiche tel quel; sinon calcul auto
+  const effectiveSupplement = v.newSupplement ?? autoSupplementMonthly ?? 0;
+
+  // Aides affichées (état + délai)
+  const aidBadge = (label: string, s: { etat: AidState; delaiMois?: number }) => {
+    const color =
+      s.etat === "supprimée"
+        ? "destructive"
+        : s.etat === "partielle"
+        ? "secondary"
+        : s.etat === "maintenue"
+        ? "default"
+        : "outline";
+    const txt =
+      s.delaiMois && s.delaiMois > 0 ? `${label}: ${s.etat} (${s.delaiMois} mois)` : `${label}: ${s.etat}`;
+    return (
+      <Badge key={label} variant={color as any}>
+        {txt}
+      </Badge>
+    );
+  };
+
+  // ─────────────────────────────────────────────────────────
+  // Rendu
 
   return (
     <Card className={className}>
@@ -475,7 +752,7 @@ const LeaseCard: React.FC<LeaseCardProps> = ({
                 </SelectTrigger>
                 <SelectContent>
                   {["LC.53", "LC.65", "LC.75", "LC.2007", "RC.47", "RC.53", "RC.65"].map((b) => (
-                    <SelectItem key={b} value={b as LawBase}>
+                    <SelectItem key={b} value={b}>
                       {b}
                     </SelectItem>
                   ))}
@@ -655,69 +932,147 @@ const LeaseCard: React.FC<LeaseCardProps> = ({
               />
             </div>
 
-            <div className="md:col-span-3">
-              <Label htmlFor="terminationVisa">Visa</Label>
+            <div className="md:col-span-4">
+              <Label htmlFor="terminationReason">Motif (métier)</Label>
               <Select
-                value={v.terminationVisa ?? "Ordinaire"}
-                onValueChange={(s) => set({ terminationVisa: s as LeaseValue["terminationVisa"] })}
+                value={v.terminationReason ?? ""}
+                onValueChange={(s) => set({ terminationReason: s as TerminationReason })}
               >
-                <SelectTrigger id="terminationVisa">
-                  <SelectValue />
+                <SelectTrigger id="terminationReason">
+                  <SelectValue placeholder="Sélectionner un motif…" />
                 </SelectTrigger>
                 <SelectContent>
-                  {["Ordinaire", "Extraordinaire", "Pour sous-occupation", "Autre"].map((opt) => (
-                    <SelectItem key={opt} value={opt as any}>
-                      {opt}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="SOS_SIMPLE">SOS – Sous-occupation simple</SelectItem>
+                  <SelectItem value="SON_NOTOIRE">SON – Sous-occupation notoire</SelectItem>
+                  <SelectItem value="RTE">RTE – Revenus trop élevés</SelectItem>
+                  <SelectItem value="DIF">DIF – Devoir d'information</SelectItem>
+                  <SelectItem value="SUR_OCCUPATION">SUR-OCCUPATION</SelectItem>
+                  <SelectItem value="AUTRE">Autre</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div className="md:col-span-3">
-              <Label htmlFor="terminationProlongationEnd">Date fin prolongation</Label>
-              <Input
-                id="terminationProlongationEnd"
-                type="date"
-                value={v.terminationProlongationEnd ?? ""}
-                onChange={(e) => set({ terminationProlongationEnd: e.target.value })}
-              />
+              <Label htmlFor="prolongationType">Prolongation</Label>
+              <Select
+                value={v.prolongationType ?? "AUCUNE"}
+                onValueChange={(s) => set({ prolongationType: s as ProlongationType })}
+              >
+                <SelectTrigger id="prolongationType">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="AUCUNE">Aucune</SelectItem>
+                  <SelectItem value="CONVENTION">Convention</SelectItem>
+                  <SelectItem value="AUDIENCE">Audience</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
-            <div className="md:col-span-3">
-              <Label htmlFor="terminationEffective">Résiliation effective</Label>
-              <div className="flex items-center gap-2 h-10">
-                <Switch
-                  id="terminationEffective"
-                  checked={!!v.terminationEffective}
-                  onCheckedChange={(c) => set({ terminationEffective: !!c })}
-                />
-                <span className="text-sm text-slate-600">
-                  {v.terminationEffective ? "Oui" : "Non"}
-                </span>
-              </div>
-            </div>
-
-            <div className="md:col-span-3">
-              <Label htmlFor="overrunPercent">Dépassement (en %)</Label>
+            <div className="md:col-span-2">
+              <Label htmlFor="overrunPercent">Dépassement (RDU en %)</Label>
               <div className="relative">
                 <Input
                   id="overrunPercent"
                   value={v.overrunPercent ?? ""}
                   onChange={(e) => set({ overrunPercent: parseNumber(e.target.value) })}
                   inputMode="decimal"
+                  placeholder="ex. 18"
                 />
                 <Percent className="absolute right-2 top-2.5 h-4 w-4 text-slate-400" />
               </div>
             </div>
 
+            <div className="md:col-span-12 grid grid-cols-1 md:grid-cols-12 gap-4">
+              <div className="md:col-span-3">
+                <Label htmlFor="terminationProlongationEnd">Date fin prolongation</Label>
+                <Input
+                  id="terminationProlongationEnd"
+                  type="date"
+                  value={v.terminationProlongationEnd ?? ""}
+                  onChange={(e) => set({ terminationProlongationEnd: e.target.value })}
+                />
+              </div>
+
+              <div className="md:col-span-3">
+                <Label htmlFor="terminationEffective">Résiliation effective</Label>
+                <div className="flex items-center gap-2 h-10">
+                  <Switch
+                    id="terminationEffective"
+                    checked={!!v.terminationEffective}
+                    onCheckedChange={(c) => set({ terminationEffective: !!c })}
+                  />
+                  <span className="text-sm text-slate-600">
+                    {v.terminationEffective ? "Oui" : "Non"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="md:col-span-3">
+                <Label>Exceptions</Label>
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="conciergePro60"
+                      checked={!!v.conciergePro60}
+                      onCheckedChange={(c) => set({ conciergePro60: !!c })}
+                    />
+                    <span className="text-sm">Concierge pro ≥ 60%</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="avsSeul3Pieces"
+                      checked={!!v.avsSeul3Pieces}
+                      onCheckedChange={(c) => set({ avsSeul3Pieces: !!c })}
+                    />
+                    <span className="text-sm">AVS seul 3 pièces</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="md:col-span-12">
+              <div className="rounded-md border p-3 bg-slate-50">
+                <div className="flex items-center gap-2 mb-2">
+                  <Info className="h-4 w-4 text-slate-500" />
+                  <span className="text-sm font-semibold">Conséquences (règles automatiques)</span>
+                </div>
+
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {aidBadge("Aides cantonales", outcome.aides.cantonales)}
+                  {aidBadge("Aides communales", outcome.aides.communales)}
+                  {aidBadge("AS", outcome.aides.AS)}
+                  <Badge variant={outcome.resiliation ? "destructive" : "outline"}>
+                    {outcome.resiliation ? "Résiliation" : "Pas de résiliation automatique"}
+                  </Badge>
+                  {outcome.supplementPercent ? (
+                    <Badge variant="secondary">
+                      Supplément {outcome.supplementPercent}% {outcome.supplementIsQuarterly ? "(trimestriel)" : ""}
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline">Pas de supplément</Badge>
+                  )}
+                </div>
+
+                <ul className="list-disc pl-5 text-sm text-slate-700">
+                  {outcome.notes.map((n, i) => (
+                    <li key={i}>{n}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
             <div className="md:col-span-3">
-              <Label htmlFor="newSupplement">Nouveau supplément</Label>
+              <Label htmlFor="newSupplement">Supplément mensuel (auto / manuel)</Label>
               <MoneyInput
                 id="newSupplement"
-                value={v.newSupplement}
+                value={v.newSupplement ?? autoSupplementMonthly}
                 onChange={(n) => set({ newSupplement: n })}
               />
+              <p className="text-xs text-slate-500 mt-1">
+                Auto: {outcome.supplementPercent ? `${outcome.supplementPercent}% du net` : "—"}&nbsp;
+                {outcome.supplementNote ? `• ${outcome.supplementNote}` : ""}
+              </p>
             </div>
 
             <div className="md:col-span-3">

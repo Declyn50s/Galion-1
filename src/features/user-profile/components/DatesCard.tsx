@@ -27,10 +27,10 @@ type Props = {
   className?: string
 }
 
-const formatCurrency = (amount?: number) =>
-  typeof amount === "number"
-    ? `CHF ${amount.toLocaleString("fr-CH", { maximumFractionDigits: 0 })}`
-    : "—"
+/* -------- small helpers robustes -------- */
+const isFiniteNumber = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n)
+const fmtCHF = (amount?: number) =>
+  isFiniteNumber(amount) ? `CHF ${amount.toLocaleString("fr-CH", { maximumFractionDigits: 0 })}` : "—"
 
 const DatesCard: React.FC<Props> = ({
   registrationDate,
@@ -49,8 +49,8 @@ const DatesCard: React.FC<Props> = ({
 
   // 2) Loyer min effectif : prend la prop si dispo, sinon calcule via RDU + col
   const effectiveMinRent = useMemo(() => {
-    if (typeof minRent === "number") return minRent
-    if (typeof rduForBareme === "number" && rduForBareme > 0) {
+    if (isFiniteNumber(minRent)) return minRent
+    if (isFiniteNumber(rduForBareme) && rduForBareme > 0) {
       return rentLimitFromIncome(rduForBareme, col)
     }
     return undefined
@@ -58,7 +58,8 @@ const DatesCard: React.FC<Props> = ({
 
   // 3) Infos barème (tranche loyer + plage RDU) basées sur le loyer min effectif
   const bar = useMemo(() => {
-    if (typeof effectiveMinRent !== "number") return null
+    if (!isFiniteNumber(effectiveMinRent) || effectiveMinRent <= 0) return null
+    // computeBareme est robuste côté lib (arrondi et NaN-safe), mais on garde la garde ici
     return computeBareme(effectiveMinRent, col)
   }, [effectiveMinRent, col])
 
@@ -103,7 +104,7 @@ const DatesCard: React.FC<Props> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
           <Field label="Pièces max">
             <Select
-              value={typeof maxRooms === "number" ? String(maxRooms) : ""}
+              value={isFiniteNumber(maxRooms) ? String(maxRooms) : ""}
               onValueChange={(v) => onChange("maxRooms", v ? Number(v) : undefined)}
             >
               <SelectTrigger className="h-8 text-xs">
@@ -123,24 +124,17 @@ const DatesCard: React.FC<Props> = ({
             <div>
               <Input
                 readOnly
-                value={formatCurrency(effectiveMinRent)}
+                value={fmtCHF(effectiveMinRent)}
                 className="h-8 text-xs bg-slate-100 cursor-not-allowed"
               />
               {bar && (
                 <p className="mt-1 text-[11px] leading-tight text-slate-600">
                   Tranche loyer{" "}
-                  {`CHF ${bar.rentRange.min.toLocaleString("fr-CH", { maximumFractionDigits: 0 })}`}
-                  {" – "}
-                  {`CHF ${bar.rentRange.max.toLocaleString("fr-CH", { maximumFractionDigits: 0 })}`}{" "}
+                  {fmtCHF(bar?.rentRange?.min)}{" – "}{fmtCHF(bar?.rentRange?.max)}{" "}
                   • RDU admissible{" "}
-                  {`CHF ${bar.incomeRange.min.toLocaleString("fr-CH", { maximumFractionDigits: 0 })}`}
-                  {" – "}
-                  {`CHF ${bar.incomeRange.max.toLocaleString("fr-CH", { maximumFractionDigits: 0 })}`}
+                  {fmtCHF(bar?.incomeRange?.min)}{" – "}{fmtCHF(bar?.incomeRange?.max)}
                   {typeof countedMinors === "number" && (
-                    <>
-                      {" "}
-                      • Enfants comptés: {countedMinors}
-                    </>
+                    <> • Enfants comptés: {countedMinors}</>
                   )}
                 </p>
               )}

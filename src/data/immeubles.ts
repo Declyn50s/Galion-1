@@ -1,7 +1,31 @@
 // src/data/immeubles.ts
-export type ImmeubleRow = { sehl: number; adresse: string; base: string };
+// =====================
+// MISE À JOUR : ajout de l’enrichissement "gérance" à partir d’un RAW texte multi-lignes.
 
-// Copie/colle ici le contenu EXACT de ton RAW_DATA (le grand tableau) :
+// ----------------- Types de base -----------------
+export type LawBase = "LC.53" | "LC.65" | "LC.75" | "LC.2007" | "RC.47" | "RC.53" | "RC.65";
+
+export type ImmeubleRow = {
+  sehl: number;
+  adresse: string;
+  base: string;
+};
+
+type Range = [number, number];
+
+export type GeranceInfo = {
+  organisme: string;           // ex. "Commune de Lausanne - Services des gérances"
+  adresseLigne1: string;       // ex. "Place Chauderon 9, case postale 5032"
+  npa: string;                 // ex. "1001"
+  localite: string;            // ex. "Lausanne"
+  telephone: string;           // ex. "+41 21 315 49 49"
+};
+
+export type EnrichedImmeubleRow = ImmeubleRow & {
+  gerance?: GeranceInfo;
+};
+
+// ----------------- Dataset IMMEUBLES (tel que fourni) -----------------
 export const IMMEUBLES: ImmeubleRow[] = [
   { sehl: 2, adresse: "ANCIEN-STAND 12-18", base: "LC.53" },
   { sehl: 3, adresse: "ANCIEN-STAND 20", base: "LC.53" },
@@ -221,7 +245,7 @@ export const IMMEUBLES: ImmeubleRow[] = [
   { sehl: 5060, adresse: "GERMAINE-ERNST 10", base: "LC.2007" },
 ];
 
-// --- utils robustes d'adresse ---
+// ----------------- Utils adresse (inchangés + robustifiés) -----------------
 
 export const stripDiacritics = (s: string) =>
   String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -238,10 +262,6 @@ const TYPES = new Set([
 ]);
 const ARTICLES = new Set(["DE","DU","DES","LA","LE","L'","D'"]);
 
-/** Retourne le "noyau" de rue (sans type/article/numéro), ex:
- *  "Rue de la Borde 32" -> "BORDE"
- *  "Avenue de Morges 58" -> "MORGES"
- */
 function streetCore(input: string): string {
   let s = U(input).replace(/[,.;]/g, " ");
   const parts = s.split(/\s+/).filter(Boolean);
@@ -251,29 +271,17 @@ function streetCore(input: string): string {
   return kept.join(" ").replace(/\s+/g, " ").trim();
 }
 
-/** Extrait le 1er numéro trouvé côté utilisateur (lettres ignorées) */
 function firstHouseNumber(input: string): number | null {
   const m = U(input).match(/(\d{1,5})/);
   return m ? parseInt(m[1], 10) : null;
 }
 
-type Range = [number, number];
-type ImIndexValue = { ranges: Range[] };
-
-/** Convertit une chaîne d'adresse d'immeuble en liste de plages numériques.
- *  Gère: "26-30", "12:14/16B-22B", "8a10", "51-57 BIS", "2-6 + 8-12", etc.
- */
 function rangesFromAdresse(adr: string): Range[] {
   let s = U(adr);
-  // "8a10" → "8-10"
-  s = s.replace(/(\d+)A(\d+)/g, "$1-$2");
-  // Séparateurs variés -> espace
-  s = s.replace(/[:/+,]/g, " ");
-  // "16B" -> "16"
-  s = s.replace(/(\d+)[A-Z]+/g, "$1");
-  // On garde chiffres, tirets et espaces
+  s = s.replace(/(\d+)A(\d+)/g, "$1-$2");       // "8a10" → "8-10"
+  s = s.replace(/[:/+,]/g, " ");                // ":" "/" "+" "," → " "
+  s = s.replace(/(\d+)[A-Z]+/g, "$1");          // "16B" → "16"
   s = s.replace(/[^0-9\- ]+/g, " ").replace(/\s+/g, " ").trim();
-
   const ranges: Range[] = [];
   for (const tok of s.split(" ")) {
     if (!tok) continue;
@@ -288,7 +296,6 @@ function rangesFromAdresse(adr: string): Range[] {
       }
     }
   }
-  // fusionne les plages qui se touchent
   ranges.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
   const merged: Range[] = [];
   for (const r of ranges) {
@@ -300,7 +307,9 @@ function rangesFromAdresse(adr: string): Range[] {
   return merged;
 }
 
-/** Index { streetCore -> plages de numéros } construit depuis IMMEUBLES */
+// --- Index rapide des rues IMMEUBLES (pour isAdresseInImmeubles etc.)
+type ImIndexValue = { ranges: Range[] };
+
 const IMMEUBLES_INDEX: Map<string, ImIndexValue> = (() => {
   const m = new Map<string, ImIndexValue>();
   for (const row of IMMEUBLES) {
@@ -311,7 +320,6 @@ const IMMEUBLES_INDEX: Map<string, ImIndexValue> = (() => {
     if (prev) prev.ranges.push(...ranges);
     else m.set(core, { ranges: [...ranges] });
   }
-  // merge final des plages par rue
   for (const v of m.values()) {
     const flat = v.ranges.map(([a, b]) => `${a}-${b}`).join(" ");
     v.ranges = rangesFromAdresse(flat);
@@ -319,64 +327,36 @@ const IMMEUBLES_INDEX: Map<string, ImIndexValue> = (() => {
   return m;
 })();
 
-/** Vérifie si "Rue de la Borde 32" matche une ligne IMMEUBLES comme "BORDE 26-30" ou "BORDE 32" */
 export function isAdresseInImmeubles(userAdresse: string): boolean {
   const core = streetCore(userAdresse);
   if (!core) return false;
   const n = firstHouseNumber(userAdresse);
   const v = IMMEUBLES_INDEX.get(core);
   if (!v) return false;
-  if (n == null) return true; // si aucun n°, on considère que la rue existe
+  if (n == null) return true;
   return v.ranges.some(([a, b]) => n >= a && n <= b);
 }
 
-// (Optionnel) on garde un Set des noyaux de rue si besoin ailleurs
 export const ADRESSES_SET = new Set(Array.from(IMMEUBLES_INDEX.keys()));
-export const canonAdresse = U; // pour compat descendante si utilisé ailleurs
+export const canonAdresse = U;
 
-// --- DÉTECTION BASE LÉGALE DEPUIS UNE ADRESSE UTILISATEUR ---
-
-export type LawBase =
-  | "LC.53"
-  | "LC.65"
-  | "LC.75"
-  | "LC.2007"
-  | "RC.47"
-  | "RC.53"
-  | "RC.65";
-
-type Range = [number, number];
-
-// NB: streetCore, firstHouseNumber, rangesFromAdresse, IMMEUBLES, etc. existent déjà ci-dessus.
-
-// Renvoie la ligne IMMEUBLE correspondante (si n° trouvé dans une des plages)
+// --- Détection base légale depuis une adresse utilisateur (inchangé) ---
 export function matchImmeuble(userAdresse: string):
   | { base: LawBase; sehl: number; adresseCanonique: string }
   | null {
-  // @ts-ignore accès aux helpers internes du fichier
-  const core = (streetCore as any)(userAdresse);
+  const core = streetCore(userAdresse);
   if (!core) return null;
-  // @ts-ignore
-  const n = (firstHouseNumber as any)(userAdresse);
+  const n = firstHouseNumber(userAdresse);
 
-  // Filtre toutes les lignes de la même rue
-  const rows = IMMEUBLES.filter((r) => {
-    // @ts-ignore
-    return (streetCore as any)(r.adresse) === core;
-  });
-
+  const rows = IMMEUBLES.filter((r) => streetCore(r.adresse) === core);
   if (rows.length === 0) return null;
 
   if (n == null) {
-    // Pas de numéro → on retourne la 1ère base de cette rue (meilleur effort)
     const r = rows[0];
     return { base: r.base as LawBase, sehl: r.sehl, adresseCanonique: r.adresse };
   }
-
-  // Cherche une plage contenant le numéro
   for (const r of rows) {
-    // @ts-ignore
-    const ranges: Range[] = (rangesFromAdresse as any)(r.adresse);
+    const ranges: Range[] = rangesFromAdresse(r.adresse);
     if (ranges.some(([a, b]) => n >= a && n <= b)) {
       return { base: r.base as LawBase, sehl: r.sehl, adresseCanonique: r.adresse };
     }
@@ -384,20 +364,13 @@ export function matchImmeuble(userAdresse: string):
   return null;
 }
 
-// Renvoie uniquement la base (confort)
 export function guessBaseFromImmeubles(userAdresse: string): LawBase | null {
   const m = matchImmeuble(userAdresse);
   return m ? m.base : null;
 }
 
-// Regroupe les bases RC.* en "RC", sinon renvoie la base telle quelle, sinon "UNKNOWN"
 export function lawGroupFromBase(base?: string | null):
-  | "RC"
-  | "LC.53"
-  | "LC.65"
-  | "LC.75"
-  | "LC.2007"
-  | "UNKNOWN" {
+  | "RC" | "LC.53" | "LC.65" | "LC.75" | "LC.2007" | "UNKNOWN" {
   const b = String(base || "").toUpperCase();
   if (!b) return "UNKNOWN";
   if (b.startsWith("RC.")) return "RC";
@@ -406,4 +379,181 @@ export function lawGroupFromBase(base?: string | null):
   if (b === "LC.75") return "LC.75";
   if (b === "LC.2007") return "LC.2007";
   return "UNKNOWN";
+}
+
+// ----------------- NOUVEAU : Enrichissement gérance -----------------
+
+// 1) Colle ici le gros bloc que tu m’as donné.
+const RAW_CONTACTS = String.raw`[COLLE ICI LE TEXTE BRUT EXACT DE TA LISTE GÉRANCE]`;
+
+// 2) Aliases pour rapprocher les libellés (orthographes/variantes)
+const ALIAS: Record<string, string> = {
+  "ALEXANDRE-VINET": "VINET",
+  "ALOYS-FAUQUEZ": "FAUQUEZ",
+  "BOIS-DE-LA-FONTAINE": "BOIS FONTAINE",
+  "BONNE-ESPERANCE": "BONNE ESPERANCE",
+  "CITE-DERRIERE": "CITE DERRIERE",
+  "ISABELLE-DE-MONTOLIEU": "MONTOLIEU",
+  "MONTMEILLAN": "MONTMELIAN",
+  "PETIT-FLON": "PETIT FLONT",
+  "WILLIAM-HALDIMAND": "HALDIMAND",
+  // Paire mixte dans le dataset : "PIDOU 10-18 HARPE 34"
+  // On laisse matcher PIDOU et HARPE indépendamment via inclusion de core.
+};
+
+function applyAlias(core: string): string {
+  const name = core.replace(/\s+\d.*$/, "").trim();
+  if (ALIAS[name]) {
+    const tail = core.slice(name.length).trim();
+    return (ALIAS[name] + (tail ? " " + tail : "")).trim();
+  }
+  return core;
+}
+
+// 3) Parser de la ligne d’immeubles "multi-rue / multi-numéros"
+function parseBuildingLine(line: string): string[] {
+  const s = line.replace(/ — | – /g, " - ").replace(/ - /g, ", ");
+  const parts = s.split(",").map(p => p.trim()).filter(Boolean);
+  const out: string[] = [];
+  let currentStreet: string | null = null;
+
+  for (const part of parts) {
+    const m = part.match(/^(.*?)(\d.*)$/); // "Rue X " + "12a-16, 18"
+    if (m) {
+      const left = m[1].trim();
+      const nums = m[2].trim();
+      if (left && /[A-Za-zÀ-ÿ]/.test(left)) currentStreet = left;
+      if (currentStreet) {
+        // éclate "10 12" éventuel (rare, on a surtout virgules ou tirets)
+        if (/\s/.test(nums) && !/-/.test(nums) && !/,/.test(nums)) {
+          nums.split(/\s+/).forEach(n => out.push(`${currentStreet} ${n}`.trim()));
+        } else {
+          out.push(`${currentStreet} ${nums}`.trim());
+        }
+      }
+    } else if (currentStreet) {
+      out.push(`${currentStreet} ${part}`.trim());
+    }
+  }
+  return out;
+}
+
+// 4) Extraction structurée depuis le RAW
+type RawEntry = {
+  adresseUser: string; // ex. "Aloys-Fauquez 8"
+  core: string;        // normalisé
+  ranges: Range[];     // plages dérivées (ex. "8, 10, 12" → [8-8],[10-10],[12-12])
+  gerance: GeranceInfo;
+};
+
+function parseRawContacts(raw: string): RawEntry[] {
+  const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+  const entries: RawEntry[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].toUpperCase() !== "LAUSANNE") continue;
+    const buildingLine = lines[i + 1];                 // ex. "Aloys-Fauquez 8, 10, 12"
+    const organisme = lines[i + 2];
+    const adresseLigne1 = lines[i + 3];
+    const npaMaybe = lines[i + 4];
+    const localiteMaybe = lines[i + 5];
+    const telephoneMaybe = lines[i + 6];
+
+    if (!buildingLine || !organisme) continue;
+
+    // Déduire NPA/ville/tel. (tolérant : parfois des "Lausanne" parasites)
+    let npa = "", localite = "", telephone = "";
+    // heuristique NPA = 4 chiffres
+    if (/^\d{4}$/.test(npaMaybe || "")) {
+      npa = npaMaybe!;
+      localite = (localiteMaybe || "").replace(/\s+/g, " ").trim();
+      telephone = telephoneMaybe || "";
+    } else {
+      // fallback : on essaie de repérer le tél sur les 3 lignes suivantes
+      const window = [npaMaybe, localiteMaybe, telephoneMaybe].filter(Boolean) as string[];
+      const telIdx = window.findIndex(w => /^\+?\d/.test(w));
+      if (telIdx >= 0) telephone = window[telIdx]!;
+      const npaIdx = window.findIndex(w => /^\d{4}$/.test(w));
+      if (npaIdx >= 0) npa = window[npaIdx]!;
+      const locIdx = window.findIndex((w, j) => j !== npaIdx && w?.toUpperCase() === "LAUSANNE");
+      if (locIdx >= 0) localite = window[locIdx]!;
+      if (!localite) localite = "Lausanne";
+    }
+
+    const gerance: GeranceInfo = {
+      organisme,
+      adresseLigne1,
+      npa,
+      localite,
+      telephone,
+    };
+
+    // éclater la/les adresses de la ligne
+    const exploded = parseBuildingLine(buildingLine);
+    for (const adr of exploded) {
+      const coreRaw = streetCore(adr);
+      const core = applyAlias(coreRaw);
+      const ranges = rangesFromAdresse(adr);
+      // si pas de n°, on met une plage [0, 99999] (rare)
+      const r = ranges.length ? ranges : ([ [0, 99999] ] as Range[]);
+      entries.push({ adresseUser: adr, core, ranges: r, gerance });
+    }
+  }
+  return entries;
+}
+
+// 5) Construction de l’index d’enrichissement : { core → [{ranges, gerance}...] }
+type EnrichSlot = { ranges: Range[]; gerance: GeranceInfo };
+const ENRICH_INDEX: Map<string, EnrichSlot[]> = (() => {
+  const m = new Map<string, EnrichSlot[]>();
+  if (!RAW_CONTACTS || RAW_CONTACTS.includes("[COLLE ICI")) return m; // rien collé
+  const rows = parseRawContacts(RAW_CONTACTS);
+  for (const r of rows) {
+    const arr = m.get(r.core) || [];
+    arr.push({ ranges: r.ranges, gerance: r.gerance });
+    m.set(r.core, arr);
+  }
+  return m;
+})();
+
+// 6) Match gérance pour une adresse utilisateur
+export function getGeranceFor(userAdresse: string): GeranceInfo | undefined {
+  const core = applyAlias(streetCore(userAdresse));
+  if (!core) return;
+  const n = firstHouseNumber(userAdresse) ?? -1;
+  const slots = ENRICH_INDEX.get(core);
+  if (!slots) return;
+  // on teste les plages ; si pas de n°, on prend la première
+  if (n < 0) return slots[0]?.gerance;
+  for (const slot of slots) {
+    if (slot.ranges.some(([a, b]) => n >= a && n <= b)) return slot.gerance;
+  }
+  return;
+}
+
+// 7) ENRICHED_IMMEUBLES : on projette la gérance sur chaque ligne du dataset
+export const ENRICHED_IMMEUBLES: EnrichedImmeubleRow[] = IMMEUBLES.map((row) => {
+  const core = applyAlias(streetCore(row.adresse));
+  const ranges = rangesFromAdresse(row.adresse);
+  const slots = ENRICH_INDEX.get(core);
+  if (!slots) return { ...row };
+  // essaie d’intersection de plages
+  for (const slot of slots) {
+    for (const [a, b] of ranges) {
+      if (slot.ranges.some(([x, y]) => !(y < a || x > b))) {
+        return { ...row, gerance: slot.gerance };
+      }
+    }
+  }
+  return { ...row };
+});
+
+// 8) Helper : retourne la même chose que matchImmeuble, avec gérance en plus
+export function matchImmeubleWithGerance(userAdresse: string):
+  | ({ base: LawBase; sehl: number; adresseCanonique: string } & { gerance?: GeranceInfo })
+  | null {
+  const baseMatch = matchImmeuble(userAdresse);
+  if (!baseMatch) return null;
+  const gerance = getGeranceFor(userAdresse);
+  return { ...baseMatch, gerance };
 }

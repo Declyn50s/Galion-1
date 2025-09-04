@@ -1,6 +1,7 @@
 // src/features/tenant/components/DernierControleMinimal.tsx
 import * as React from "react";
 import { Card, CardContent } from "@/components/ui/card";
+import FrequencyBadge from "@/features/tenant/components/FrequencyBadge";
 
 type Law = "1975" | "ANCIENNES" | "2007";
 type Reason = "CONFORME" | "SON" | "SUR" | "RTE" | "DIF"; // + DIF (Devoir d'information)
@@ -184,3 +185,9 @@ export function runDernierControleMinimalSmoke() {
   });
   log("T6:", t6);
 }
+
+<FrequencyBadge
+  law={law}                 // "LC.75" | "LC.2007" | "RC" | "UNKNOWN"
+  hasAS={/* bool selon l'immeuble */}
+  lastControlDate={/* ISO string ou Date, ex. "2023-06-21" */}
+/>
