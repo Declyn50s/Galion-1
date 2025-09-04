@@ -152,8 +152,8 @@ const UserProfilePage: React.FC = () => {
           isApplicant={!!state.userProfile.isApplicant}
           isTenant={isSubsidized}
           onSave={state.savePersonalInfo}
-          onAttestation={() => console.log("Attestation (demandeur)")}
           onCopyAddress={state.copyAddressInfo}
+          onAction={() => console.log("Attestation (demandeur)")} // ✅ bouton visible ici
           applicantTo={`/users/${encodeURIComponent(userId ?? "")}`}
           tenantTo={isSubsidized ? `/tenants/${encodeURIComponent(userId ?? "")}` : undefined}
         />
@@ -168,7 +168,8 @@ const UserProfilePage: React.FC = () => {
               size="tight"
               offsetTop={80}
               items={[
-                { id: "section-counters-dates", label: "Ménage & Dates", icon: QuickNavIcons.menage },
+                { id: "section-counters", label: "En bref", icon: QuickNavIcons.menage },
+                { id: "section-dates", label: "Dates", icon: QuickNavIcons.timeline },
                 { id: "section-info", label: "Informations", icon: QuickNavIcons.info },
                 { id: "section-household", label: "Ménage", icon: QuickNavIcons.menage },
                 { id: "section-income", label: "Revenus", icon: QuickNavIcons.revenus },
@@ -183,40 +184,37 @@ const UserProfilePage: React.FC = () => {
 
           {/* Contenu principal */}
           <div className="lg:col-span-9 space-y-6">
-            {/* 1) Comptage du ménage & Dates */}
-            <section id="section-counters-dates">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="h-full">
-                  <HouseholdCounters
-                    className="h-full"
-                    density="tight"
-                    main={{
-                      birthDate: state.userProfile.birthDate,
-                      role: state.userProfile.maritalStatus,
-                      nationality: state.userProfile.nationality,
-                      residencePermit: state.userProfile.residencePermit,
-                      permitExpiryDate: state.userProfile.permitExpiryDate,
-                    }}
-                    household={household}
-                  />
-                </div>
-
-                <div className="h-full">
-                  <DatesCard
-                    registrationDate={state.userProfile.registrationDate}
-                    lastCertificateDate={state.userProfile.lastCertificateDate}
-                    deadline={state.userProfile.deadline}
-                    maxRooms={state.userProfile.maxRooms}
-                    minRent={minRent}
-                    countedMinors={minorsCount}
-                    rduForBareme={rduTotal}
-                    onChange={state.updateProfile}
-                  />
-                </div>
-              </div>
+            {/* 1) 👪 Ménage (compteurs) — plein largeur, en premier */}
+            <section id="section-counters">
+              <HouseholdCounters
+                className="h-full"
+                density="tight"
+                main={{
+                  birthDate: state.userProfile.birthDate,
+                  role: state.userProfile.maritalStatus,
+                  nationality: state.userProfile.nationality,
+                  residencePermit: state.userProfile.residencePermit,
+                  permitExpiryDate: state.userProfile.permitExpiryDate,
+                }}
+                household={household}
+              />
             </section>
 
-            {/* 2) Informations personnelles */}
+            {/* 2) 📅 Dates — plein largeur, en second */}
+            <section id="section-dates">
+              <DatesCard
+                registrationDate={state.userProfile.registrationDate}
+                lastCertificateDate={state.userProfile.lastCertificateDate}
+                deadline={state.userProfile.deadline}
+                maxRooms={state.userProfile.maxRooms}
+                minRent={minRent}
+                countedMinors={minorsCount}
+                rduForBareme={rduTotal}
+                onChange={state.updateProfile}
+              />
+            </section>
+
+            {/* 3) Informations personnelles */}
             <section id="section-info">
               <PersonalInfoCard
                 userProfile={state.userProfile}
@@ -232,7 +230,7 @@ const UserProfilePage: React.FC = () => {
               />
             </section>
 
-            {/* 3) Ménage */}
+            {/* 4) Ménage */}
             <section id="section-household">
               <div className="grid grid-cols-1 gap-4">
                 <HouseholdCard
@@ -245,7 +243,7 @@ const UserProfilePage: React.FC = () => {
               </div>
             </section>
 
-            {/* 4) Revenus */}
+            {/* 5) Revenus */}
             <section id="section-income">
               <IncomeCard
                 people={[
@@ -282,17 +280,17 @@ const UserProfilePage: React.FC = () => {
               />
             </section>
 
-            {/* 5) Historique des interactions */}
+            {/* 6) Historique des interactions */}
             <section id="section-timeline">
               <InteractionTimeline />
             </section>
 
-            {/* 6) Documents */}
+            {/* 7) Documents */}
             <section id="section-docs">
               <DocumentManager userId={userId} defaultAuthor="DBO" />
             </section>
 
-            {/* 7) Propositions de logement */}
+            {/* 8) Propositions de logement */}
             <section id="section-proposals">
               <HousingProposals
                 densityDefault="compact"
@@ -300,14 +298,14 @@ const UserProfilePage: React.FC = () => {
               />
             </section>
 
-            {/* 8) Historique (placeholder) */}
+            {/* 9) Historique (placeholder) */}
             <section id="section-history">
               <div className="rounded-md border bg-white p-4 text-sm text-slate-600">
                 Historique global — à intégrer (journal/audit spécifique usager).
               </div>
             </section>
 
-            {/* 9) Séances */}
+            {/* 10) Séances */}
             <section id="section-session">
               <div className="rounded-md border bg-white p-4 text-sm text-slate-600">
                 Séance global — à intégrer (journal/audit spécifique usager).

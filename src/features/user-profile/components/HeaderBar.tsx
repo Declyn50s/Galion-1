@@ -1,100 +1,115 @@
+// src/features/user-profile/components/HeaderBar.tsx
 import React from "react";
-import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { FileText, Save, Copy } from "lucide-react";
+import { Save, Copy, FileText, ShieldCheck } from "lucide-react";
+import { Link, useLocation } from "react-router-dom";
 
 type Props = {
-  /** Statuts “métier” (coloration) */
-  isApplicant?: boolean; // => pill Demandeur rouge si true
-  isTenant?: boolean;    // => pill Locataire verte si true
-
-  /** Actions */
+  isApplicant: boolean;
+  isTenant: boolean;
   onSave: () => void;
-  onAttestation: () => void;
   onCopyAddress: () => void;
 
-  /** Routes de navigation (si définies => cliquable) */
-  applicantTo?: string;  // ex: `/users/:id`
-  tenantTo?: string;     // ex: `/tenants/:id` (ne pas fournir si non-locataire)
+  /** Handler du bouton d’action (si fourni on affiche le bouton) */
+  onAction?: () => void;
+
+  /** Routes pour naviguer entre Demandeur / Locataire */
+  applicantTo?: string;
+  tenantTo?: string;
+
+  /** Optionnel : forcer le libellé (sinon auto: Demandeur=Attestation, Locataire=Contrôle) */
+  actionLabel?: string;
 };
 
 const pillBase =
   "inline-flex items-center rounded-md border transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 px-3 py-1.5 text-sm font-medium";
-const pillNeutral = "text-slate-600 bg-slate-50 border-slate-200 hover:bg-slate-100";
-const pillApplicantActive = "bg-rose-500 text-white border-rose-500";
-const pillTenantActive   = "bg-green-500 text-white border-green-500";
-const pillActiveOutline  = "ring-2 ring-slate-300"; // sur la vue en cours (visuel léger)
-
-function Pill({
-  to,
-  children,
-  className,
-  title,
-  isActive,
-}: {
-  to?: string;
-  children: React.ReactNode;
-  className: string;
-  title?: string;
-  isActive?: boolean;
-}) {
-  const cls = `${pillBase} ${className} ${isActive ? pillActiveOutline : ""}`;
-  return to ? (
-    <Link to={to} className={cls} title={title}>
-      {children}
-    </Link>
-  ) : (
-    <span className={cls} title={title}>
-      {children}
-    </span>
-  );
-}
 
 const HeaderBar: React.FC<Props> = ({
-  isApplicant = false,
-  isTenant = false,
+  isApplicant,
+  isTenant,
   onSave,
-  onAttestation,
   onCopyAddress,
+  onAction,
   applicantTo,
   tenantTo,
+  actionLabel,
 }) => {
   const { pathname } = useLocation();
-  const onApplicantView = applicantTo && pathname.startsWith(applicantTo);
-  const onTenantView = tenantTo && pathname.startsWith(tenantTo);
+  const onApplicantView = pathname.startsWith("/users/");
+  const onTenantView = pathname.startsWith("/tenants/");
+
+  // Libellé d’action automatique si non fourni
+  const effectiveActionLabel =
+    actionLabel ?? (onTenantView ? "Contrôle" : "Attestation");
+
+  // Styles des pills — on met un anneau bien visible sur la page active
+  const applicantPill = (() => {
+    const active = onApplicantView && isApplicant;
+    const clickable = !!applicantTo && !active && isApplicant;
+    if (active) return `${pillBase} text-white bg-red-600 border-red-600 ring-2 ring-red-300`;
+    if (clickable) return `${pillBase} text-red-700 bg-red-50 border-red-200 hover:bg-red-100`;
+    if (isApplicant) return `${pillBase} text-red-700 bg-red-50 border-red-200`;
+    return `${pillBase} text-slate-400 bg-slate-50 border-slate-200 cursor-not-allowed`;
+  })();
+
+  const tenantPill = (() => {
+    const active = onTenantView && isTenant;
+    const clickable = !!tenantTo && !active && isTenant;
+    if (active) return `${pillBase} text-white bg-green-500 border-green-500 ring-2 ring-green-300`;
+    if (clickable) return `${pillBase} text-green-700 bg-green-50 border-green-200 hover:bg-green-100`;
+    if (isTenant) return `${pillBase} text-green-700 bg-green-50 border-green-200`;
+    return `${pillBase} text-slate-400 bg-slate-50 border-slate-200 cursor-not-allowed`;
+  })();
+
+  // Icône d’action selon page (docs vs contrôle)
+  const ActionIcon = onTenantView ? ShieldCheck : FileText;
 
   return (
     <div className="flex justify-between items-center">
+      {/* Pills Demandeur / Locataire */}
       <div className="flex gap-2">
-        {/* Toujours ROUGE si isApplicant=true (même sur Locataire) ; neutre sinon */}
-        <Pill
-          to={applicantTo}
-          className={isApplicant ? pillApplicantActive : pillNeutral}
-          title="Aller à la vue Demandeur"
-          isActive={!!onApplicantView}
-        >
-          Demandeur
-        </Pill>
+        {isApplicant && applicantTo ? (
+          <Link
+            to={applicantTo}
+            className={applicantPill}
+            aria-current={onApplicantView ? "page" : undefined}
+          >
+            Demandeur
+          </Link>
+        ) : (
+          <div className={applicantPill}>
+            <span>Demandeur</span>
+          </div>
+        )}
 
-        {/* VERTE uniquement si isTenant=true, sinon neutre.
-            Si la personne n’est pas locataire, ne PAS fournir tenantTo => non cliquable */}
-        <Pill
-          to={tenantTo}
-          className={isTenant ? pillTenantActive : pillNeutral}
-          title={tenantTo ? "Aller à la vue Locataire" : "Non locataire"}
-          isActive={!!onTenantView}
-        >
-          Locataire
-        </Pill>
+        {isTenant && tenantTo ? (
+          <Link
+            to={tenantTo}
+            className={tenantPill}
+            aria-current={onTenantView ? "page" : undefined}
+          >
+            Locataire
+          </Link>
+        ) : (
+          <div className={tenantPill}>
+            <span>Locataire</span>
+          </div>
+        )}
       </div>
 
+      {/* Actions */}
       <div className="flex gap-3">
-        <Button variant="outline" className="gap-2" onClick={onAttestation}>
-          <FileText className="h-4 w-4" /> Attestation
-        </Button>
         <Button variant="outline" className="gap-2" onClick={onCopyAddress}>
           <Copy className="h-4 w-4" /> Copier adresse
         </Button>
+
+        {onAction && (
+          <Button variant="outline" className="gap-2" onClick={onAction}>
+            <ActionIcon className="h-4 w-4" />
+            {effectiveActionLabel}
+          </Button>
+        )}
+
         <Button className="gap-2" onClick={onSave}>
           <Save className="h-4 w-4" /> Enregistrer
         </Button>

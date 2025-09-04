@@ -333,3 +333,77 @@ export function isAdresseInImmeubles(userAdresse: string): boolean {
 // (Optionnel) on garde un Set des noyaux de rue si besoin ailleurs
 export const ADRESSES_SET = new Set(Array.from(IMMEUBLES_INDEX.keys()));
 export const canonAdresse = U; // pour compat descendante si utilisé ailleurs
+
+// --- DÉTECTION BASE LÉGALE DEPUIS UNE ADRESSE UTILISATEUR ---
+
+export type LawBase =
+  | "LC.53"
+  | "LC.65"
+  | "LC.75"
+  | "LC.2007"
+  | "RC.47"
+  | "RC.53"
+  | "RC.65";
+
+type Range = [number, number];
+
+// NB: streetCore, firstHouseNumber, rangesFromAdresse, IMMEUBLES, etc. existent déjà ci-dessus.
+
+// Renvoie la ligne IMMEUBLE correspondante (si n° trouvé dans une des plages)
+export function matchImmeuble(userAdresse: string):
+  | { base: LawBase; sehl: number; adresseCanonique: string }
+  | null {
+  // @ts-ignore accès aux helpers internes du fichier
+  const core = (streetCore as any)(userAdresse);
+  if (!core) return null;
+  // @ts-ignore
+  const n = (firstHouseNumber as any)(userAdresse);
+
+  // Filtre toutes les lignes de la même rue
+  const rows = IMMEUBLES.filter((r) => {
+    // @ts-ignore
+    return (streetCore as any)(r.adresse) === core;
+  });
+
+  if (rows.length === 0) return null;
+
+  if (n == null) {
+    // Pas de numéro → on retourne la 1ère base de cette rue (meilleur effort)
+    const r = rows[0];
+    return { base: r.base as LawBase, sehl: r.sehl, adresseCanonique: r.adresse };
+  }
+
+  // Cherche une plage contenant le numéro
+  for (const r of rows) {
+    // @ts-ignore
+    const ranges: Range[] = (rangesFromAdresse as any)(r.adresse);
+    if (ranges.some(([a, b]) => n >= a && n <= b)) {
+      return { base: r.base as LawBase, sehl: r.sehl, adresseCanonique: r.adresse };
+    }
+  }
+  return null;
+}
+
+// Renvoie uniquement la base (confort)
+export function guessBaseFromImmeubles(userAdresse: string): LawBase | null {
+  const m = matchImmeuble(userAdresse);
+  return m ? m.base : null;
+}
+
+// Regroupe les bases RC.* en "RC", sinon renvoie la base telle quelle, sinon "UNKNOWN"
+export function lawGroupFromBase(base?: string | null):
+  | "RC"
+  | "LC.53"
+  | "LC.65"
+  | "LC.75"
+  | "LC.2007"
+  | "UNKNOWN" {
+  const b = String(base || "").toUpperCase();
+  if (!b) return "UNKNOWN";
+  if (b.startsWith("RC.")) return "RC";
+  if (b === "LC.53") return "LC.53";
+  if (b === "LC.65") return "LC.65";
+  if (b === "LC.75") return "LC.75";
+  if (b === "LC.2007") return "LC.2007";
+  return "UNKNOWN";
+}
