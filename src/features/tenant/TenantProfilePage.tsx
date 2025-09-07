@@ -9,7 +9,9 @@ import HouseholdCounters from "@/features/user-profile/components/HouseholdCount
 import DocumentManager from "@/features/user-profile/components/DocumentManager/DocumentManager";
 import InteractionTimeline from "@/features/user-profile/components/InteractionTimeline/InteractionTimeline";
 import InteractionBar from "@/features/user-profile/components/InteractionBar";
-import LeaseCard, { type LeaseValue } from "@/features/tenant/components/LeaseCard";
+
+import LeaseCompact from "@/features/tenant/components/LeaseCompact";
+import DernierControl, { type ControlEntry } from "@/features/tenant/components/DernierControl";
 import ControlDialog from "@/features/tenant/components/Control/ControlDialog";
 import DecisionForm from "@/features/tenant/components/Control/DecisionForm";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -20,6 +22,9 @@ import QuickNavSticky, {
 
 import { useUserProfileState } from "@/features/user-profile/hooks/useUserProfileState";
 import { InteractionDialog } from "@/components/InteractionDialog";
+
+// Types bail (pour l’état local)
+import type { LeaseValue } from "@/features/tenant/components/lease/types";
 
 // Immeubles (pour détecter LLM + base)
 import { isAdresseInImmeubles, IMMEUBLES, stripDiacritics } from "@/data/immeubles";
@@ -110,7 +115,7 @@ type ControlResult = {
   minors: number;
   underOcc?: "none" | "simple" | "notoire";
   overOcc?: "none" | "sur";
-  rte?: "unknown" | "lte20" | "gt20";
+  rte?: "unknown" | "none" | "lte20" | "gt20"; // accepte "none" aussi
   cap?: number;
   percentOverCap?: number;
   notes: string[];
@@ -154,7 +159,7 @@ const TenantProfilePage: React.FC = () => {
       address: streetFromProfile, // ex: "BERNE"
       entry: numberFromProfile, // ex: "9"
       rooms: (state.userProfile as any).maxRooms,
-      // IMPORTANT: LeaseCard doit exposer rentNetMonthly
+      // IMPORTANT: le composant bail expose rentNetMonthly
       rentNetMonthly: (state.userProfile as any).rentNetMonthly ?? undefined,
     }),
     [streetFromProfile, numberFromProfile, state.userProfile]
@@ -198,11 +203,15 @@ const TenantProfilePage: React.FC = () => {
   const [decisionOpen, setDecisionOpen] = React.useState(false);
   const [controlSnapshot, setControlSnapshot] = React.useState<ControlResult | null>(null);
 
+  // Historique + pending
+  const [controlsHistory, setControlsHistory] = React.useState<ControlEntry[]>([]);
+  const [pendingControl, setPendingControl] = React.useState<ControlEntry | null>(null);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
       <div className="max-w-6xl mx-auto space-y-6">
         <HeaderBar
-          isApplicant={state.userProfile.isApplicant}
+          isApplicant={!!state.userProfile.isApplicant}
           isTenant={isSubsidized}
           onSave={state.savePersonalInfo}
           onCopyAddress={state.copyAddressInfo}
@@ -291,16 +300,33 @@ const TenantProfilePage: React.FC = () => {
               <InteractionTimeline />
             </section>
 
-            {/* 5) Dernier contrôle (placeholder) */}
+            {/* 5) Dernier contrôle */}
             <section id="section-lastcheck">
               <div className="rounded-md border bg-white p-4 text-sm text-slate-600">
-                Dernier contrôle — à intégrer (date, résultat, pièces vérifiées, remarques).
+                <DernierControl
+                  law={law}
+                  hasAS={true}
+                  history={controlsHistory}
+                  pending={pendingControl}
+                  onCopyToHistory={(e) => {
+                    // Ajouter dans l’historique
+                    setControlsHistory((prev) => [e, ...prev]);
+                  }}
+                  onOverwriteLast={(e) => {
+                    // Remplacer le dernier contrôle par le pending
+                    setControlsHistory((prev) => {
+                      const older = prev.length ? prev.slice(1) : [];
+                      return [e, ...older];
+                    });
+                    setPendingControl(null);
+                  }}
+                />
               </div>
             </section>
 
             {/* 6) Bail */}
             <section id="section-lease">
-              <LeaseCard
+              <LeaseCompact
                 value={lease}
                 onChange={handleLeaseChange}
                 onModifyDates={() => console.log("Modifier dates bail")}
@@ -312,42 +338,37 @@ const TenantProfilePage: React.FC = () => {
             {/* 7) Revenu */}
             <section id="section-income">
               <IncomeCard
-  people={[
-    {
-      id: "main",
-      role: "demandeur",
-      name: `${state.userProfile.firstName} ${state.userProfile.lastName}`,
-      birthDate: state.userProfile.birthDate,
-      nationality: state.userProfile.nationality,
-      residencePermit: state.userProfile.residencePermit,
-      permitExpiryDate: state.userProfile.permitExpiryDate,
-    },
-    ...household.map((m: any) => {
-      const r = normalizeRole(m.role);
-      const role = r === "conjoint" ? "conjoint" : r.startsWith("enfant") ? "enfant" : "autre";
-      return {
-        id: m.id,
-        role,
-        name: m.name,
-        birthDate: m.birthDate,
-        nationality: m.nationality,
-        residencePermit: m.residencePermit,
-        permitExpiryDate: m.permitExpiryDate,
-      };
-    }),
-  ]}
-  countMode="counted"
-  onTotalsChange={({ totalRDUHousehold }) => setRduTotal(totalRDUHousehold)}
-  tenantContext={{
-    enabled: true,
-    rentNetMonthly: lease?.rentNetMonthly ?? undefined, // loyer bail
-  }}
-  // Optionnel : si tu veux savoir quelle colonne de barème a été retenue
-  // onBaremeChange={({ column, minorsCount, mode, description }) => {
-  //   console.log({ column, minorsCount, mode, description });
-  // }}
-/>
-
+                people={[
+                  {
+                    id: "main",
+                    role: "demandeur",
+                    name: `${state.userProfile.firstName} ${state.userProfile.lastName}`,
+                    birthDate: state.userProfile.birthDate,
+                    nationality: state.userProfile.nationality,
+                    residencePermit: state.userProfile.residencePermit,
+                    permitExpiryDate: state.userProfile.permitExpiryDate,
+                  },
+                  ...household.map((m: any) => {
+                    const r = normalizeRole(m.role);
+                    const role = r === "conjoint" ? "conjoint" : r.startsWith("enfant") ? "enfant" : "autre";
+                    return {
+                      id: m.id,
+                      role,
+                      name: m.name,
+                      birthDate: m.birthDate,
+                      nationality: m.nationality,
+                      residencePermit: m.residencePermit,
+                      permitExpiryDate: m.permitExpiryDate,
+                    };
+                  }),
+                ]}
+                countMode="counted"
+                onTotalsChange={({ totalRDUHousehold }) => setRduTotal(totalRDUHousehold)}
+                tenantContext={{
+                  enabled: true,
+                  rentNetMonthly: lease?.rentNetMonthly ?? undefined, // loyer bail
+                }}
+              />
             </section>
 
             {/* 8) Documents */}
@@ -421,9 +442,23 @@ const TenantProfilePage: React.FC = () => {
         }}
         onRun={(result) => {
           console.log("Résultat contrôle:", result);
-          setControlSnapshot(result); // snapshot pour pré-remplir la décision
-          setDecisionOpen(true); // ouvre la modale Décision
-          // setControlOpen(false); // décommente si tu veux fermer la modale de contrôle automatiquement
+          setControlSnapshot(result); // pour pré-remplir la décision
+          setDecisionOpen(true);
+
+          // ➜ crée un "pending" condensé pour l’UI DernierControl (remplaçable)
+          const entry: ControlEntry = {
+            date: new Date().toISOString().slice(0, 10),
+            baremeColumn: (result as any).baremeColumn, // si dispo
+            by: "DBO",
+            updatedBy: "DBO",
+            result: {
+              son: result.underOcc ?? "none",
+              rte: (result.rte ?? "unknown") as any,
+              dif: false,
+            },
+            // actions: tu pourras mapper la Decision ici plus tard
+          };
+          setPendingControl(entry);
         }}
       />
 
@@ -451,7 +486,11 @@ const TenantProfilePage: React.FC = () => {
               }}
               onSubmit={(decision) => {
                 console.log("Décision enregistrée", decision);
-                // ➜ ici: persist (API/DB), génération courrier, création tâches de suivi, etc.
+                // Exemple : si tu veux valider tout de suite le pending dans l’historique
+                // if (pendingControl) {
+                //   setControlsHistory((prev) => [pendingControl, ...prev]);
+                //   setPendingControl(null);
+                // }
                 setDecisionOpen(false);
               }}
               onCancel={() => setDecisionOpen(false)}

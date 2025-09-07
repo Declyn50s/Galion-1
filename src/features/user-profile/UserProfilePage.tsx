@@ -1,149 +1,193 @@
 // src/features/user-profile/UserProfilePage.tsx
-import React from "react"
-import { useParams } from "react-router-dom"
+import React from "react";
+import { useParams } from "react-router-dom";
 
-import HeaderBar from "./components/HeaderBar"
-import InteractionBar from "./components/InteractionBar"
-import DatesCard from "./components/DatesCard"
-import IncomeCard from "./components/IncomeCard/IncomeCard"
-import PersonalInfoCard from "./components/PersonalInfoCard"
-import HouseholdCard from "./components/Household/HouseholdCard"
-import { useUserProfileState } from "./hooks/useUserProfileState"
-import { InteractionDialog } from "@/components/InteractionDialog"
-import DocumentManager from "./components/DocumentManager/DocumentManager"
-import InteractionTimeline from "./components/InteractionTimeline/InteractionTimeline"
-import HousingProposals from "./components/HousingProposals/HousingProposals"
-import HouseholdCounters from "./components/HouseholdCounters/HouseholdCounters"
-import QuickNavSticky, { QuickNavIcons } from "./components/QuickNavSticky/QuickNavSticky"
+import HeaderBar from "./components/HeaderBar";
+import InteractionBar from "./components/InteractionBar";
+import DatesCard from "./components/DatesCard";
+import IncomeCard from "./components/IncomeCard/IncomeCard";
+import PersonalInfoCard from "./components/PersonalInfoCard";
+import HouseholdCard from "./components/Household/HouseholdCard";
+import { useUserProfileState } from "./hooks/useUserProfileState";
+import { InteractionDialog } from "@/components/InteractionDialog";
+import DocumentManager from "./components/DocumentManager/DocumentManager";
+import InteractionTimeline from "./components/InteractionTimeline/InteractionTimeline";
+import HousingProposals from "./components/HousingProposals/HousingProposals";
+import HouseholdCounters from "./components/HouseholdCounters/HouseholdCounters";
+import QuickNavSticky, {
+  QuickNavIcons,
+} from "./components/QuickNavSticky/QuickNavSticky";
+import AttestationDialog from "@/features/attestation/AttestationDialog";
 
 // LLM / immeubles subventionnés
-import { isAdresseInImmeubles } from "@/data/immeubles"
+import { isAdresseInImmeubles } from "@/data/immeubles";
 
 // Barème
-import { rentLimitFromIncome, BaremeColumn } from "@/lib/bareme"
+import { rentLimitFromIncome, BaremeColumn } from "@/lib/bareme";
 
 // ────────────────────────────────────────────────────────────────────────────────
 // Helpers
 const toDate = (s?: string) => {
-  if (!s) return undefined
-  const d = new Date(s)
-  return Number.isNaN(d.getTime()) ? undefined : d
-}
+  if (!s) return undefined;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+};
 
-const isPermitValid = (nationality?: string, permit?: string, expiry?: string) => {
-  const nat = (nationality ?? "").trim().toLowerCase()
-  const p = (permit ?? "").trim().toLowerCase()
+const isPermitValid = (
+  nationality?: string,
+  permit?: string,
+  expiry?: string
+) => {
+  const nat = (nationality ?? "").trim().toLowerCase();
+  const p = (permit ?? "").trim().toLowerCase();
 
-  if (nat === "suisse") return true
-  const isCitizen = p === "citoyen" || p === "citizen"
-  const isC = p === "permis c" || p === "c"
-  const isB = p === "permis b" || p === "b"
-  const isF = p === "permis f" || p === "f"
+  if (nat === "suisse") return true;
+  const isCitizen = p === "citoyen" || p === "citizen";
+  const isC = p === "permis c" || p === "c";
+  const isB = p === "permis b" || p === "b";
+  const isF = p === "permis f" || p === "f";
 
-  if (isCitizen || isC) return true
+  if (isCitizen || isC) return true;
   if (isB || isF) {
-    const d = toDate(expiry)
-    if (!d) return false
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    return d >= today
+    const d = toDate(expiry);
+    if (!d) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return d >= today;
   }
-  return false
-}
+  return false;
+};
 
 const yearsDiff = (iso?: string) => {
-  const d = toDate(iso)
-  if (!d) return 0
-  const today = new Date()
-  let age = today.getFullYear() - d.getFullYear()
-  const md = today.getMonth() - d.getMonth()
-  if (md < 0 || (md === 0 && today.getDate() < d.getDate())) age--
-  return age
-}
+  const d = toDate(iso);
+  if (!d) return 0;
+  const today = new Date();
+  let age = today.getFullYear() - d.getFullYear();
+  const md = today.getMonth() - d.getMonth();
+  if (md < 0 || (md === 0 && today.getDate() < d.getDate())) age--;
+  return age;
+};
 
 const normalizeRole = (s?: string) =>
   (s || "")
     .toLowerCase()
     .replace(/-/g, "–")
     .replace(/\s*–\s*/g, " – ")
-    .trim()
+    .trim();
 
 const isVisitingChildRole = (role?: string) => {
-  const r = normalizeRole(role)
-  return /^enfant\b/.test(r) && /\bvisite\b/.test(r)
-}
+  const r = normalizeRole(role);
+  return /^enfant\b/.test(r) && /\bvisite\b/.test(r);
+};
 
 // Reconstruit une “ligne adresse” exploitable par isAdresseInImmeubles
 function addressLineFromProfile(p: any): string {
   const direct =
-    p.adresse ??
-    p.address ??
-    p.addressLine ??
-    p.addressLine1 ??
-    ""
-  if (direct && direct.trim()) return direct.trim()
+    p.adresse ?? p.address ?? p.addressLine ?? p.addressLine1 ?? "";
+  if (direct && direct.trim()) return direct.trim();
 
   const parts = [
     [p.street, p.streetNumber].filter(Boolean).join(" ").trim(),
     p.addressComplement ?? p.complement ?? "",
-  ].filter((x: string) => x && x.trim().length > 0)
+  ].filter((x: string) => x && x.trim().length > 0);
 
-  return parts.join(" ").trim()
+  return parts.join(" ").trim();
+}
+
+// Données pour l’attestation (pré-remplissage)
+function buildAttestationDataFromProfile(p: any): Record<string, string> {
+  return {
+    NOM: String(p.lastName || "").toUpperCase(),
+    PRENOM: p.firstName || "",
+    CIVILITE: p.gender === "Féminin" ? "Madame" : "Monsieur",
+    ADRESSE_L1:
+      p.adresse ??
+      p.address ??
+      [p.street, p.streetNumber].filter(Boolean).join(" "),
+    ADRESSE_L2: p.addressComplement ?? p.complement ?? "",
+    NPA: p.postalCode || "",
+    VILLE: p.city || "Lausanne",
+    NSS: p.socialSecurityNumber || "",
+    TELEPHONE: p.phone || "",
+    EMAIL: p.email || "",
+    NATIONALITE: p.nationality || "",
+    PERMIS: p.residencePermit || "",
+    ETAT_CIVIL: p.maritalStatus || "",
+    DATE_NAISS: p.birthDate
+      ? new Date(p.birthDate).toLocaleDateString("fr-CH")
+      : "",
+    VIA: p.lausanneStatus || "",
+    VIA_DATE: p.lausanneStatusDate
+      ? new Date(p.lausanneStatusDate).toLocaleDateString("fr-CH")
+      : "",
+    NB_MINEURS: String(
+      (p.household || []).filter((m: any) => yearsDiff(m.birthDate) < 18).length
+    ),
+  };
 }
 // ────────────────────────────────────────────────────────────────────────────────
 
 const UserProfilePage: React.FC = () => {
-  const { userId } = useParams<{ userId: string }>()
-  const state = useUserProfileState(userId)
+  const { userId } = useParams<{ userId: string }>();
+  const state = useUserProfileState(userId);
 
   // RDU ménage récupéré depuis IncomeCard
-  const [rduTotal, setRduTotal] = React.useState<number>(0)
+  const [rduTotal, setRduTotal] = React.useState<number>(0);
 
-  const household = state.userProfile.household ?? []
+  // Attestation (dialog)
+  const [attOpen, setAttOpen] = React.useState(false);
+
+  const household = state.userProfile.household ?? [];
 
   // Enfants en droit de visite (mineurs). NB: pas de condition de permis pour le bonus.
   const visitingChildrenCount = React.useMemo(() => {
     return household.reduce((acc: number, m: any) => {
-      return acc + (isVisitingChildRole(m.role) && yearsDiff(m.birthDate) < 18 ? 1 : 0)
-    }, 0)
-  }, [household])
+      return (
+        acc +
+        (isVisitingChildRole(m.role) && yearsDiff(m.birthDate) < 18 ? 1 : 0)
+      );
+    }, 0);
+  }, [household]);
 
   // Enfants “comptés” (enfant / enfant à charge / garde alternée) : mineurs + permis valide
   const minorsCount = React.useMemo(() => {
     return household.reduce((acc: number, m: any) => {
-      const r = normalizeRole(m.role)
+      const r = normalizeRole(m.role);
       const isCountedRole =
-        r === "enfant" || r === "enfant à charge" || r === "enfant – garde alternée"
-      if (!isCountedRole) return acc
-      if (!isPermitValid(m.nationality, m.residencePermit, m.permitExpiryDate)) return acc
-      return acc + (yearsDiff(m.birthDate) < 18 ? 1 : 0)
-    }, 0)
-  }, [household])
+        r === "enfant" ||
+        r === "enfant à charge" ||
+        r === "enfant – garde alternée";
+      if (!isCountedRole) return acc;
+      if (!isPermitValid(m.nationality, m.residencePermit, m.permitExpiryDate))
+        return acc;
+      return acc + (yearsDiff(m.birthDate) < 18 ? 1 : 0);
+    }, 0);
+  }, [household]);
 
   // Colonne de base
   const baseCol = React.useMemo<number>(() => {
-    const n = Math.max(0, Math.floor(minorsCount))
-    return n === 0 ? 1 : Math.min(n, 4) + 1
-  }, [minorsCount])
+    const n = Math.max(0, Math.floor(minorsCount));
+    return n === 0 ? 1 : Math.min(n, 4) + 1;
+  }, [minorsCount]);
 
   // Bonus DV : +1 si ≥2 enfants en droit de visite (borné à 5)
   const finalCol = React.useMemo<BaremeColumn>(() => {
-    const bonus = visitingChildrenCount >= 2 ? 1 : 0
-    return Math.min(baseCol + bonus, 5) as BaremeColumn
-  }, [baseCol, visitingChildrenCount])
+    const bonus = visitingChildrenCount >= 2 ? 1 : 0;
+    return Math.min(baseCol + bonus, 5) as BaremeColumn;
+  }, [baseCol, visitingChildrenCount]);
 
   // Loyer min (limite barème) d’après le RDU total et la colonne finale
   const minRent = React.useMemo(() => {
-    if (!rduTotal || rduTotal <= 0) return undefined
-    return rentLimitFromIncome(rduTotal, finalCol)
-  }, [rduTotal, finalCol])
+    if (!rduTotal || rduTotal <= 0) return undefined;
+    return rentLimitFromIncome(rduTotal, finalCol);
+  }, [rduTotal, finalCol]);
 
   // Détection LLM (immeuble subventionné) pour badge & navigation
-  const adresseProfil = addressLineFromProfile(state.userProfile)
+  const adresseProfil = addressLineFromProfile(state.userProfile);
   const isSubsidized = React.useMemo(
     () => (adresseProfil ? isAdresseInImmeubles(adresseProfil) : false),
     [adresseProfil]
-  )
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
@@ -153,9 +197,13 @@ const UserProfilePage: React.FC = () => {
           isTenant={isSubsidized}
           onSave={state.savePersonalInfo}
           onCopyAddress={state.copyAddressInfo}
-          onAction={() => console.log("Attestation (demandeur)")} // ✅ bouton visible ici
+          onAction={() => setAttOpen(true)} // ← ouvre l’attestation
           applicantTo={`/users/${encodeURIComponent(userId ?? "")}`}
-          tenantTo={isSubsidized ? `/tenants/${encodeURIComponent(userId ?? "")}` : undefined}
+          tenantTo={
+            isSubsidized
+              ? `/tenants/${encodeURIComponent(userId ?? "")}`
+              : undefined
+          }
         />
 
         <InteractionBar onClick={state.handleInteractionClick} />
@@ -168,16 +216,56 @@ const UserProfilePage: React.FC = () => {
               size="tight"
               offsetTop={80}
               items={[
-                { id: "section-counters", label: "En bref", icon: QuickNavIcons.menage },
-                { id: "section-dates", label: "Dates", icon: QuickNavIcons.timeline },
-                { id: "section-info", label: "Informations", icon: QuickNavIcons.info },
-                { id: "section-household", label: "Ménage", icon: QuickNavIcons.menage },
-                { id: "section-income", label: "Revenus", icon: QuickNavIcons.revenus },
-                { id: "section-timeline", label: "Interactions", icon: QuickNavIcons.timeline },
-                { id: "section-docs", label: "Documents", icon: QuickNavIcons.docs },
-                { id: "section-proposals", label: "Propositions", icon: QuickNavIcons.props },
-                { id: "section-history", label: "Historique", icon: QuickNavIcons.timeline },
-                { id: "section-session", label: "Séance", icon: QuickNavIcons.timeline },
+                {
+                  id: "section-counters",
+                  label: "En bref",
+                  icon: QuickNavIcons.menage,
+                },
+                {
+                  id: "section-dates",
+                  label: "Dates",
+                  icon: QuickNavIcons.timeline,
+                },
+                {
+                  id: "section-info",
+                  label: "Informations",
+                  icon: QuickNavIcons.info,
+                },
+                {
+                  id: "section-household",
+                  label: "Ménage",
+                  icon: QuickNavIcons.menage,
+                },
+                {
+                  id: "section-income",
+                  label: "Revenus",
+                  icon: QuickNavIcons.revenus,
+                },
+                {
+                  id: "section-timeline",
+                  label: "Interactions",
+                  icon: QuickNavIcons.timeline,
+                },
+                {
+                  id: "section-docs",
+                  label: "Documents",
+                  icon: QuickNavIcons.docs,
+                },
+                {
+                  id: "section-proposals",
+                  label: "Propositions",
+                  icon: QuickNavIcons.props,
+                },
+                {
+                  id: "section-history",
+                  label: "Historique",
+                  icon: QuickNavIcons.timeline,
+                },
+                {
+                  id: "section-session",
+                  label: "Séance",
+                  icon: QuickNavIcons.timeline,
+                },
               ]}
             />
           </div>
@@ -203,15 +291,19 @@ const UserProfilePage: React.FC = () => {
             {/* 2) 📅 Dates — plein largeur, en second */}
             <section id="section-dates">
               <DatesCard
-                registrationDate={state.userProfile.registrationDate}
-                lastCertificateDate={state.userProfile.lastCertificateDate}
-                deadline={state.userProfile.deadline}
-                maxRooms={state.userProfile.maxRooms}
-                minRent={minRent}
-                countedMinors={minorsCount}
-                rduForBareme={rduTotal}
-                onChange={state.updateProfile}
-              />
+  registrationDate={state.userProfile.registrationDate}
+  lastCertificateDate={state.userProfile.lastCertificateDate}
+  deadline={state.userProfile.deadline}
+  maxRooms={state.userProfile.maxRooms}
+  minRent={minRent}
+  countedMinors={minorsCount}
+  baremeColumn={finalCol}
+  rduForBareme={rduTotal}
+  applicantAgeYears={yearsDiff(state.userProfile.birthDate)}   // ← ICI l’âge
+  annualIncomeCHF={rduTotal}                                   // ← ICI le revenu annuel
+  onChange={state.updateProfile}
+/>
+
             </section>
 
             {/* 3) Informations personnelles */}
@@ -257,13 +349,13 @@ const UserProfilePage: React.FC = () => {
                     permitExpiryDate: state.userProfile.permitExpiryDate,
                   },
                   ...household.map((m: any) => {
-                    const r = normalizeRole(m.role)
+                    const r = normalizeRole(m.role);
                     const role =
                       r === "conjoint"
                         ? "conjoint"
                         : r.startsWith("enfant")
-                          ? "enfant"
-                          : "autre"
+                        ? "enfant"
+                        : "autre";
                     return {
                       id: m.id,
                       role,
@@ -272,11 +364,13 @@ const UserProfilePage: React.FC = () => {
                       nationality: m.nationality,
                       residencePermit: m.residencePermit,
                       permitExpiryDate: m.permitExpiryDate,
-                    }
+                    };
                   }),
                 ]}
                 countMode="counted"
-                onTotalsChange={({ totalRDUHousehold }) => setRduTotal(totalRDUHousehold)}
+                onTotalsChange={({ totalRDUHousehold }) =>
+                  setRduTotal(totalRDUHousehold)
+                }
               />
             </section>
 
@@ -294,14 +388,17 @@ const UserProfilePage: React.FC = () => {
             <section id="section-proposals">
               <HousingProposals
                 densityDefault="compact"
-                onOpenLogementsLibres={() => console.log("🔍 Ouverture logements libres (démo)")}
+                onOpenLogementsLibres={() =>
+                  console.log("🔍 Ouverture logements libres (démo)")
+                }
               />
             </section>
 
             {/* 9) Historique (placeholder) */}
             <section id="section-history">
               <div className="rounded-md border bg-white p-4 text-sm text-slate-600">
-                Historique global — à intégrer (journal/audit spécifique usager).
+                Historique global — à intégrer (journal/audit spécifique
+                usager).
               </div>
             </section>
 
@@ -315,18 +412,29 @@ const UserProfilePage: React.FC = () => {
         </div>
       </div>
 
+      {/* Dialog d’attestation (éditable + export .docx) */}
+      <AttestationDialog
+        isOpen={attOpen}
+        onOpenChange={setAttOpen}
+        templateUrl="/templates/attestation.docx"
+        initialData={buildAttestationDataFromProfile(state.userProfile)}
+        fileName={`Attestation_${(state.userProfile.lastName ?? "DOC")
+          .toString()
+          .toUpperCase()}.docx`}
+      />
+
       {state.dialogOpen.type && (
         <InteractionDialog
           isOpen={state.dialogOpen.isOpen}
           onClose={state.handleDialogClose}
           initialType={state.dialogOpen.type}
           onSave={(data) => {
-            console.log("Interaction saved:", data)
+            console.log("Interaction saved:", data);
           }}
         />
       )}
     </div>
-  )
-}
+  );
+};
 
-export default UserProfilePage
+export default UserProfilePage;
