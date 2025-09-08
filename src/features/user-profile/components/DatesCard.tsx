@@ -18,36 +18,55 @@ type Props = {
   registrationDate?: string;
   lastCertificateDate?: string;
   deadline?: string;
+
+  /** Pièces sélectionnées (contrôlé par le parent) */
   maxRooms?: number;
+
   /** Loyer min calculé en amont (si dispo) — correspond à la limite pour RDU + colonne */
   minRent?: number;
-  /** (optionnel) Nb d’enfants COMPTÉS (info UI uniquement) */
+
+  /** Comptages ménage (pour pré-sélection) */
+  adultsCount?: number;              // 👈 nouveau
   countedMinors?: number;
-  /** Colonne de barème à utiliser (incluant bonus DV, borne max, etc.) */
+  visitingChildrenCount?: number;    // 👈 nouveau
+
+  /** Colonne de barème “finale” (incl. bonus DV) */
   baremeColumn: BaremeColumn;
-  /** RDU ménage (fallback pour calculer le loyer min si minRent n’est pas fourni) — annuel CHF */
+
+  /** RDU annuel du ménage (CHF) — sert si minRent non fourni */
   rduForBareme?: number;
 
-  /** NOUVEAU — contrainte 1,5p:
+  /** Interdiction 1,5p :
    *  - si revenu mensuel > 1'500 (ou annuel > 18'000)
    *  - et/ou âge ≥ 25
-   *  → on interdit 1,5 pièce
    */
   applicantAgeYears?: number;
   monthlyIncomeCHF?: number;
   annualIncomeCHF?: number;
 
-  onChange: (field: string, value: any) => void;
+  /** Peut être absent → no-op */
+  onChange?: (field: string, value: any) => void;
+
   className?: string;
 };
 
-/* -------- small helpers robustes -------- */
+/* -------- helpers -------- */
 const isFiniteNumber = (n: unknown): n is number =>
   typeof n === "number" && Number.isFinite(n);
+
 const fmtCHF = (amount?: number) =>
   isFiniteNumber(amount)
     ? `CHF ${amount.toLocaleString("fr-CH", { maximumFractionDigits: 0 })}`
     : "—";
+
+/** Renvoie la valeur “standardisée” en pas de 1.0 (1.5, 2.5, 3.5, 4.5, 5.5) */
+const stepUp = (rooms: number): number => {
+  const allowed = [1.5, 2.5, 3.5, 4.5, 5.5];
+  for (let i = 0; i < allowed.length; i++) {
+    if (rooms <= allowed[i]) return allowed[i];
+  }
+  return 5.5;
+};
 
 const DatesCard: React.FC<Props> = ({
   registrationDate,
@@ -55,19 +74,33 @@ const DatesCard: React.FC<Props> = ({
   deadline,
   maxRooms,
   minRent,
+
+  adultsCount = 1,             // défaut robuste
   countedMinors = 0,
+  visitingChildrenCount = 0,
+
   baremeColumn,
   rduForBareme,
+
   applicantAgeYears,
   monthlyIncomeCHF,
   annualIncomeCHF,
+
   onChange,
   className = "",
 }) => {
-  // 1) Colonne du barème : fournie par le parent (déjà “finale”)
+  // ✅ wrapper sûr
+  const change = React.useCallback(
+    (field: string, value: any) => {
+      if (typeof onChange === "function") onChange(field, value);
+    },
+    [onChange]
+  );
+
+  // 1) Colonne du barème : fournie par le parent
   const col = baremeColumn;
 
-  // 2) Loyer min effectif : prend la prop si dispo, sinon calcule via RDU + col
+  // 2) Loyer min effectif : prop > calcul (RDU + col) > undefined
   const effectiveMinRent = useMemo(() => {
     if (isFiniteNumber(minRent)) return minRent;
     if (isFiniteNumber(rduForBareme) && rduForBareme > 0) {
@@ -76,13 +109,13 @@ const DatesCard: React.FC<Props> = ({
     return undefined;
   }, [minRent, rduForBareme, col]);
 
-  // 3) Infos barème (tranche loyer + plage RDU) basées sur le loyer min effectif
+  // 3) Infos barème (tranches) pour l’UI
   const bar = useMemo(() => {
     if (!isFiniteNumber(effectiveMinRent) || effectiveMinRent <= 0) return null;
     return computeBareme(effectiveMinRent, col);
   }, [effectiveMinRent, col]);
 
-  // 4) Règles de refus (plafonds loyer min selon pièces)
+  // 4) Règles plafonds de refus (affichage)
   const maxAllowedRent = useMemo(() => {
     if (!isFiniteNumber(maxRooms)) return undefined;
     if (maxRooms === 2.5) return 1382;
@@ -104,7 +137,7 @@ const DatesCard: React.FC<Props> = ({
     isFiniteNumber(maxAllowedRent) &&
     effectiveMinRent > maxAllowedRent;
 
-  // 5) Interdiction 1,5p selon revenu/âge
+  // 5) Interdiction 1,5p (âge/revenu)
   const incomeMonthly = useMemo(() => {
     if (isFiniteNumber(monthlyIncomeCHF)) return monthlyIncomeCHF;
     const annual = isFiniteNumber(annualIncomeCHF)
@@ -120,24 +153,62 @@ const DatesCard: React.FC<Props> = ({
     isFiniteNumber(applicantAgeYears) && applicantAgeYears >= 25;
   const forbid15 = !!(tooHighIncome || is25OrMore);
 
-  const forbidReason = forbid15
-    ? [
-        tooHighIncome
-          ? "revenu mensuel > CHF 1’500.– (ou annuel > CHF 18’000.–)"
-          : null,
-        is25OrMore ? "âge ≥ 25 ans" : null,
-      ]
-        .filter(Boolean)
-        .join(" et ")
-    : "";
+// 6) PRÉ-SÉLECTION AUTOMATIQUE selon règles ménage (+1 pièce sous conditions DV)
+const autoRooms = useMemo<number>(() => {
+  const A = Math.max(0, Math.floor(adultsCount));
+  const K = Math.max(0, Math.floor(countedMinors));
+  const dv = Math.max(0, Math.floor(visitingChildrenCount));
 
-  // Si 1,5 était sélectionné et que désormais interdit, on corrige à 2,5
+  let base: number;
+
+  if (A <= 1) {
+    // Personne seule
+    if (K === 0) {
+      // Sans infos “étudiant/RI”, on applique l'interdiction 1,5p si nécessaire
+      base = forbid15 ? 2.5 : 1.5;
+    } else if (K === 1) base = 3.5;
+    else if (K === 2) base = 4.5;
+    else base = 5.5;
+  } else {
+    // Couple / ≥2 adultes
+    if (K === 0 || K === 1) base = 3.5;
+    else if (K === 2) base = 4.5;
+    else base = 5.5;
+  }
+
+  // ✅ Bonus DV (+1) uniquement si :
+  // - 1 adulte ET DV≥2
+  // - OU (≥2 adultes ET K≥1 ET DV≥2)
+  const dvEligible =
+    dv >= 2 && (A === 1 || (A >= 2 && K >= 1));
+
+  if (dvEligible) {
+    base =
+      base === 1.5 ? 2.5 :
+      base === 2.5 ? 3.5 :
+      base === 3.5 ? 4.5 :
+      5.5; // borne max
+  }
+
+  return stepUp(base);
+}, [adultsCount, countedMinors, visitingChildrenCount, forbid15]);
+
+  // 7) Appliquer la pré-sélection SANS écraser un choix manuel
+  const prevAutoRef = React.useRef<number | undefined>(undefined);
   useEffect(() => {
-    if (forbid15 && maxRooms === 1.5) {
-      onChange("maxRooms", 2.5);
+    const prevAuto = prevAutoRef.current;
+    const current = maxRooms;
+
+    // Maj si aucune valeur choisie, ou si l’utilisateur n’a pas changé depuis la dernière auto
+    const shouldApply =
+      !isFiniteNumber(current) || (isFiniteNumber(prevAuto) && current === prevAuto);
+
+    if (shouldApply && current !== autoRooms) {
+      change("maxRooms", autoRooms);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [forbid15]);
+
+    prevAutoRef.current = autoRooms;
+  }, [autoRooms, maxRooms, change]);
 
   return (
     <Card className={`border bg-white shadow-sm ${className}`}>
@@ -152,7 +223,7 @@ const DatesCard: React.FC<Props> = ({
             <Input
               type="date"
               value={registrationDate || ""}
-              onChange={(e) => onChange("registrationDate", e.target.value)}
+              onChange={(e) => change("registrationDate", e.target.value)}
               className="h-8 text-xs"
             />
           </Field>
@@ -161,7 +232,7 @@ const DatesCard: React.FC<Props> = ({
             <Input
               type="date"
               value={lastCertificateDate || ""}
-              onChange={(e) => onChange("lastCertificateDate", e.target.value)}
+              onChange={(e) => change("lastCertificateDate", e.target.value)}
               className="h-8 text-xs"
             />
           </Field>
@@ -170,7 +241,7 @@ const DatesCard: React.FC<Props> = ({
             <Input
               type="date"
               value={deadline || ""}
-              onChange={(e) => onChange("deadline", e.target.value)}
+              onChange={(e) => change("deadline", e.target.value)}
               className="h-8 text-xs"
             />
           </Field>
@@ -183,7 +254,7 @@ const DatesCard: React.FC<Props> = ({
               <Select
                 value={isFiniteNumber(maxRooms) ? String(maxRooms) : ""}
                 onValueChange={(v) =>
-                  onChange("maxRooms", v ? Number(v) : undefined)
+                  change("maxRooms", v ? Number(v) : undefined)
                 }
               >
                 <SelectTrigger className="h-8 text-xs">
@@ -199,6 +270,10 @@ const DatesCard: React.FC<Props> = ({
                   <SelectItem value="5.5">5,5</SelectItem>
                 </SelectContent>
               </Select>
+              {/* Info pré-sélection dynamique */}
+              <p className="mt-1 text-[11px] text-slate-600">
+                Pré-sélection : <strong>{String(autoRooms).replace(".", ",")} pièce(s)</strong> (règles ménage).
+              </p>
             </div>
           </Field>
 
@@ -224,7 +299,7 @@ const DatesCard: React.FC<Props> = ({
           </Field>
         </div>
 
-        {/* Notification de refus (si le loyer min dépasse la limite par catégorie de pièces) */}
+        {/* Notification de refus */}
         {isRefusal && (
           <Alert className="mt-3 border-red-200 bg-red-50">
             <FileWarning className="h-4 w-4" />

@@ -36,7 +36,7 @@ import {
 // ✅ barème officiel (plafonds RDU selon loyer & colonne)
 import { computeBareme, type BaremeColumn } from "@/lib/bareme"
 
-/* ---------- helpers permis (mêmes règles que HouseholdCounters) ---------- */
+/* ---------- helpers permis (cohérents avec HouseholdCounters) ---------- */
 const toDate = (s?: string) => {
   if (!s) return undefined
   const d = new Date(s)
@@ -44,9 +44,11 @@ const toDate = (s?: string) => {
 }
 const isPermitValid = (nationality?: string, permit?: string, expiry?: string) => {
   const nat = (nationality ?? "").trim().toLowerCase()
-  const p = (permit ?? "").trim()
-  if (nat === "suisse" || p === "Citoyen" || p === "Permis C") return true
-  if (p === "Permis B" || p === "Permis F") {
+  const p = (permit ?? "").trim().toLowerCase()
+  if (nat === "suisse") return true
+  if (p === "citoyen" || p === "citizen") return true
+  if (p === "permis c" || p === "c") return true
+  if (p === "permis b" || p === "b" || p === "permis f" || p === "f") {
     const d = toDate(expiry)
     if (!d) return false
     const today = new Date()
@@ -56,7 +58,7 @@ const isPermitValid = (nationality?: string, permit?: string, expiry?: string) =
   return false
 }
 
-/* ---------- helpers barème ---------- */
+/* ---------- helpers barème / rôles ---------- */
 const yearsDiff = (iso?: string) => {
   if (!iso) return 0
   const d = new Date(iso)
@@ -66,6 +68,34 @@ const yearsDiff = (iso?: string) => {
   const md = today.getMonth() - d.getMonth()
   if (md < 0 || (md === 0 && today.getDate() < d.getDate())) age--
   return age
+}
+
+const norm = (s?: string) =>
+  (s ?? "")
+    .toLowerCase()
+    .replace(/[–—-]/g, " ")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+
+/** DV = rôle qui commence par "enfant" ET contient "droit de visite" */
+const isDV = (rawRole?: string) => {
+  const r = norm(rawRole)
+  return r.startsWith("enfant") && r.includes("droit de visite")
+}
+
+/** Enfant “compté” = rôle enfant hors DV */
+const isChildCounted = (role: Role, rawRole?: string) => {
+  if (rawRole) {
+    const r = norm(rawRole)
+    if (!r.startsWith("enfant")) return false
+    if (r.includes("droit de visite")) return false
+    // "enfant", "enfant a charge", "enfant garde alternee", etc. => OK
+    return true
+  }
+  // fallback si pas de rawRole : on ne sait pas distinguer DV → on compte uniquement si role === "enfant"
+  return role === "enfant"
 }
 
 const BAREME_COLUMNS = [
@@ -80,9 +110,11 @@ const BAREME_COLUMNS = [
 export type PeopleItem = {
   id: string
   role: Role
+  /** Rôle “brut” tel que saisi dans le ménage (ex.: "Enfant – droit de visite") */
+  rawRole?: string
   name: string
   statuses?: SelectedStatus[]
-  // pour le comptage "counted"
+  // pour le comptage barème
   birthDate?: string
   nationality?: string
   residencePermit?: string
@@ -162,20 +194,40 @@ export default function IncomeCard({
     })
   }, [peopleSignature, people])
 
-  // Nb d'enfants "comptés" (permis valide + <18 ans)
-  const countedMinors = useMemo(() => {
-    return people.reduce((acc, m) => {
-      if (!isPermitValid(m.nationality, m.residencePermit, m.permitExpiryDate)) return acc
-      const age = yearsDiff(m.birthDate)
-      return acc + (age < 18 ? 1 : 0)
-    }, 0)
-  }, [people])
+  /* ─────────────────── Colonne barème (AUTO) — exclut DV + bonus DV ─────────────────── */
+  const { countedMinors, visitingChildren, autoBaremeCol } = useMemo(() => {
+    let minors = 0
+    let dv = 0
 
-  // Colonne barème automatique: 0 enfant => col 1 ; n enfants => col = min(n,4)+1
-  const autoBaremeCol = useMemo(() => {
-    const n = Math.min(countedMinors, 4)
-    return n === 0 ? 1 : n + 1
-  }, [countedMinors])
+    for (const m of people) {
+      const age = yearsDiff(m.birthDate)
+      const dvChild = isDV(m.rawRole)
+
+      // DV : jamais comptés, mais on cumule les DV mineurs pour le bonus
+      if (dvChild) {
+        if (age < 18) dv += 1
+        continue
+      }
+
+      // Enfants comptés : rôle enfant HORS DV + mineur + (si mode "counted") permis valide
+      const childRole = isChildCounted(m.role, m.rawRole)
+      if (childRole && age < 18) {
+        if (countMode === "all") {
+          minors += 1
+        } else {
+          if (isPermitValid(m.nationality, m.residencePermit, m.permitExpiryDate)) {
+            minors += 1
+          }
+        }
+      }
+    }
+
+    const base = minors === 0 ? 1 : Math.min(minors, 4) + 1
+    const bonus = dv >= 2 ? 1 : 0
+    const finalCol = Math.min(base + bonus, 5)
+
+    return { countedMinors: minors, visitingChildren: dv, autoBaremeCol: finalCol }
+  }, [people, countMode])
 
   // Mode et valeur manuelle
   const [baremeMode, setBaremeMode] = useState<"auto" | "manual">("auto")
@@ -194,7 +246,7 @@ export default function IncomeCard({
     })
   }, [baremeSelected, baremeMode, countedMinors, onBaremeChange])
 
-  // Auto-ensure blocs lorsqu’on (dé)sélectionne des statuts
+  /* ─────────────────── Auto-ensure blocs lorsqu’on (dé)sélectionne des statuts ─────────────────── */
   useEffect(() => {
     setPersons(arr => {
       let changed = false
@@ -264,7 +316,7 @@ export default function IncomeCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(persons.map(p => p.statuses))])
 
-  // Totaux (annuels & RDU)
+  /* ─────────────────── Totaux (annuels & RDU) ─────────────────── */
   const totals = useMemo(() => computeTotalsFor(persons), [persons])
 
   useEffect(() => {
@@ -902,8 +954,12 @@ export default function IncomeCard({
               <div className="text-sm">
                 <div className="text-[11px] text-slate-600 mb-1">Règle auto (lecture seule)</div>
                 <div className="rounded-md border bg-white px-3 py-2">
-                  {countedMinors === 0 ? "0 enfant → Col. 1"
-                    : `${countedMinors} enfant${countedMinors>1?"s":""} → Col. ${autoBaremeCol}`}
+                  {countedMinors === 0
+                    ? "0 enfant → Col. 1"
+                    : `${countedMinors} enfant${countedMinors > 1 ? "s" : ""} → Col. ${Math.min(Math.max(1, countedMinors === 0 ? 1 : Math.min(countedMinors, 4) + 1), 5)}`}
+                  {visitingChildren > 0 && (
+                    <> (DV non comptés{visitingChildren >= 2 ? " • bonus +1" : ""})</>
+                  )}
                 </div>
               </div>
 

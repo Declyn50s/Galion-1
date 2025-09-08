@@ -1,5 +1,6 @@
-import React from 'react'
-import { Button } from '@/components/ui/button'
+// src/features/user-profile/components/Household/HouseholdMemberRow.tsx
+import React from "react"
+import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -10,36 +11,58 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from '@/components/ui/alert-dialog'
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
-import { Edit, Trash2, User } from 'lucide-react'
-import type { HouseholdMember } from '@/types/user'
+} from "@/components/ui/alert-dialog"
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
+import { Edit, Trash2, User } from "lucide-react"
+import type { HouseholdMember } from "@/types/user"
 
+const normalize = (s?: string) =>
+  (s ?? "")
+    .toLowerCase()
+    .replace(/[–—-]/g, " ")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+
+// ✅ valeurs canoniques
 const ROLE_OPTIONS = [
-  'Conjoint',
-  'Enfant à charge',
-  'Enfant – garde alternée',
-  'Enfant – droit de visite',
-  'Autre',
+  { value: "conjoint", label: "Conjoint·e" },
+  { value: "enfant", label: "Enfant" },
+  { value: "enfant droit de visite", label: "Enfant (droit de visite)" },
+  { value: "enfant garde alternée", label: "Enfant (garde alternée)" },
+  { value: "autre", label: "Autre" },
 ] as const
+
+const toCanonicalRole = (role?: string): string => {
+  const r = normalize(role)
+  if (r.startsWith("conjoint")) return "conjoint"
+  if (r.startsWith("enfant") && r.includes("droit de visite")) return "enfant droit de visite"
+  if (r.startsWith("enfant") && (r.includes("garde alternee") || r.includes("garde alternée"))) return "enfant garde alternée"
+  if (r.startsWith("enfant")) return "enfant"
+  return "autre"
+}
 
 interface Props {
   member: HouseholdMember
   onSwap: () => void
   onRemove: () => void
-  onUpdateRole?: (newRole: string) => void
+  /** permet de patcher le membre (ex: { role: "enfant" }) */
+  onUpdate?: (patch: Partial<HouseholdMember>) => void
 }
 
-const HouseholdMemberRow: React.FC<Props> = ({ member, onSwap, onRemove, onUpdateRole }) => {
+const HouseholdMemberRow: React.FC<Props> = ({ member, onSwap, onRemove, onUpdate }) => {
   const bg =
-    member.gender === 'Masculin'
-      ? 'bg-blue-50 dark:bg-blue-900/20'
-      : member.gender === 'Féminin'
-      ? 'bg-pink-50 dark:bg-pink-900/20'
-      : 'bg-slate-50 dark:bg-slate-800'
+    member.gender === "Masculin"
+      ? "bg-blue-50 dark:bg-blue-900/20"
+      : member.gender === "Féminin"
+      ? "bg-pink-50 dark:bg-pink-900/20"
+      : "bg-slate-50 dark:bg-slate-800"
 
-  const [first, ...lastParts] = (member.name || '').trim().split(' ')
-  const last = lastParts.join(' ')
+  const [first, ...lastParts] = (member.name || "").trim().split(" ")
+  const last = lastParts.join(" ")
+
+  const currentRole = toCanonicalRole(member.role)
 
   return (
     <div className={`flex items-center justify-between p-4 rounded-lg border border-slate-200 dark:border-slate-700 ${bg}`}>
@@ -50,38 +73,41 @@ const HouseholdMemberRow: React.FC<Props> = ({ member, onSwap, onRemove, onUpdat
 
         <div className="flex-1">
           <div className="font-medium text-slate-900 dark:text-white">
-            <span className="capitalize">{first?.toLowerCase()}</span>{' '}
+            <span className="capitalize">{first?.toLowerCase()}</span>{" "}
             <span className="uppercase">{last}</span>
           </div>
 
           <div className="flex flex-col md:flex-row md:items-center gap-2 text-sm text-slate-600">
             <div className="flex items-center gap-2">
               <span className="text-slate-500">Rôle:</span>
-              {onUpdateRole ? (
-                <Select value={member.role} onValueChange={(v) => onUpdateRole(v)}>
+              {onUpdate ? (
+                <Select
+                  value={currentRole}
+                  onValueChange={(v) => onUpdate({ role: v })}
+                >
                   <SelectTrigger className="h-8 w-[220px] text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {ROLE_OPTIONS.map((r) => (
-                      <SelectItem key={r} value={r}>
-                        {r}
+                      <SelectItem key={r.value} value={r.value}>
+                        {r.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               ) : (
-                <span className="font-medium">{member.role}</span>
+                <span className="font-medium">
+                  {ROLE_OPTIONS.find((o) => o.value === currentRole)?.label ?? member.role}
+                </span>
               )}
             </div>
 
-            <div className="text-slate-500">
-              {member.status ? `• ${member.status}` : ''}
-            </div>
+            <div className="text-slate-500">{member.status ? `• ${member.status}` : ""}</div>
           </div>
 
           <div className="text-xs text-slate-500">
-            {new Date(member.birthDate).toLocaleDateString('fr-CH')} • {member.nationality} • {member.residencePermit}
+            {member.birthDate ? new Date(member.birthDate).toLocaleDateString("fr-CH") : "—"} • {member.nationality} • {member.residencePermit}
           </div>
         </div>
       </div>
@@ -107,8 +133,7 @@ const HouseholdMemberRow: React.FC<Props> = ({ member, onSwap, onRemove, onUpdat
             <AlertDialogHeader>
               <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
               <AlertDialogDescription>
-                Supprimer <strong>{member.name}</strong> du ménage ? Cette action est irréversible et
-                supprimera également les statuts liés.
+                Supprimer <strong>{member.name}</strong> du ménage ? Cette action est irréversible et supprimera également les statuts liés.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

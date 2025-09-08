@@ -33,11 +33,7 @@ const toDate = (s?: string) => {
   return Number.isNaN(d.getTime()) ? undefined : d;
 };
 
-const isPermitValid = (
-  nationality?: string,
-  permit?: string,
-  expiry?: string
-) => {
+const isPermitValid = (nationality?: string, permit?: string, expiry?: string) => {
   const nat = (nationality ?? "").trim().toLowerCase();
   const p = (permit ?? "").trim().toLowerCase();
 
@@ -68,22 +64,35 @@ const yearsDiff = (iso?: string) => {
   return age;
 };
 
-const normalizeRole = (s?: string) =>
-  (s || "")
+// ── Normalisation “libre” des rôles (tirets, accents, espaces, casse)
+const normalizeLoose = (s?: string) =>
+  (s ?? "")
     .toLowerCase()
-    .replace(/-/g, "–")
-    .replace(/\s*–\s*/g, " – ")
+    .replace(/[–—-]/g, " ")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
     .trim();
 
 const isVisitingChildRole = (role?: string) => {
-  const r = normalizeRole(role);
-  return /^enfant\b/.test(r) && /\bvisite\b/.test(r);
+  const r = normalizeLoose(role);
+  return r.startsWith("enfant") && r.includes("droit de visite");
+};
+
+// Enfant “compté” pour la colonne de barème (hors DV)
+const isCountedChildRole = (role?: string) => {
+  const r = normalizeLoose(role);
+  if (isVisitingChildRole(role)) return false;
+  return (
+    r === "enfant" ||
+    r.includes("a charge") ||
+    r.includes("garde alternee")
+  );
 };
 
 // Reconstruit une “ligne adresse” exploitable par isAdresseInImmeubles
 function addressLineFromProfile(p: any): string {
-  const direct =
-    p.adresse ?? p.address ?? p.addressLine ?? p.addressLine1 ?? "";
+  const direct = p.adresse ?? p.address ?? p.addressLine ?? p.addressLine1 ?? "";
   if (direct && direct.trim()) return direct.trim();
 
   const parts = [
@@ -101,9 +110,7 @@ function buildAttestationDataFromProfile(p: any): Record<string, string> {
     PRENOM: p.firstName || "",
     CIVILITE: p.gender === "Féminin" ? "Madame" : "Monsieur",
     ADRESSE_L1:
-      p.adresse ??
-      p.address ??
-      [p.street, p.streetNumber].filter(Boolean).join(" "),
+      p.adresse ?? p.address ?? [p.street, p.streetNumber].filter(Boolean).join(" "),
     ADRESSE_L2: p.addressComplement ?? p.complement ?? "",
     NPA: p.postalCode || "",
     VILLE: p.city || "Lausanne",
@@ -113,9 +120,7 @@ function buildAttestationDataFromProfile(p: any): Record<string, string> {
     NATIONALITE: p.nationality || "",
     PERMIS: p.residencePermit || "",
     ETAT_CIVIL: p.maritalStatus || "",
-    DATE_NAISS: p.birthDate
-      ? new Date(p.birthDate).toLocaleDateString("fr-CH")
-      : "",
+    DATE_NAISS: p.birthDate ? new Date(p.birthDate).toLocaleDateString("fr-CH") : "",
     VIA: p.lausanneStatus || "",
     VIA_DATE: p.lausanneStatusDate
       ? new Date(p.lausanneStatusDate).toLocaleDateString("fr-CH")
@@ -139,38 +144,39 @@ const UserProfilePage: React.FC = () => {
 
   const household = state.userProfile.household ?? [];
 
-  // Enfants en droit de visite (mineurs). NB: pas de condition de permis pour le bonus.
+  // Enfants en droit de visite (mineurs) — PAS comptés pour la base
   const visitingChildrenCount = React.useMemo(() => {
-    return household.reduce((acc: number, m: any) => {
-      return (
-        acc +
-        (isVisitingChildRole(m.role) && yearsDiff(m.birthDate) < 18 ? 1 : 0)
-      );
+    return (household ?? []).reduce((acc: number, m: any) => {
+      return acc + (isVisitingChildRole(m.role) && yearsDiff(m.birthDate) < 18 ? 1 : 0);
     }, 0);
   }, [household]);
 
-  // Enfants “comptés” (enfant / enfant à charge / garde alternée) : mineurs + permis valide
+  // Enfants “comptés” (barème) = enfant / à charge / garde alternée, permis valide, < 18 ans, hors DV
   const minorsCount = React.useMemo(() => {
-    return household.reduce((acc: number, m: any) => {
-      const r = normalizeRole(m.role);
-      const isCountedRole =
-        r === "enfant" ||
-        r === "enfant à charge" ||
-        r === "enfant – garde alternée";
-      if (!isCountedRole) return acc;
-      if (!isPermitValid(m.nationality, m.residencePermit, m.permitExpiryDate))
-        return acc;
+    return (household ?? []).reduce((acc: number, m: any) => {
+      if (!isCountedChildRole(m.role)) return acc;
+      if (!isPermitValid(m.nationality, m.residencePermit, m.permitExpiryDate)) return acc;
       return acc + (yearsDiff(m.birthDate) < 18 ? 1 : 0);
     }, 0);
   }, [household]);
 
-  // Colonne de base
+  // Adultes pour distinguer personne seule vs couple (on exclut seulement DV)
+  const adultsCount = React.useMemo(() => {
+    let a = yearsDiff(state.userProfile.birthDate) >= 18 ? 1 : 0;
+    for (const m of household) {
+      if (isVisitingChildRole(m.role)) continue;
+      if (yearsDiff(m.birthDate) >= 18) a += 1;
+    }
+    return a;
+  }, [state.userProfile.birthDate, household]);
+
+  // Colonne de base selon nb de mineurs “comptés”
   const baseCol = React.useMemo<number>(() => {
-    const n = Math.max(0, Math.floor(minorsCount));
+    const n = Math.max(0, Math.floor(minorsCount)); // 0 enfant → Col.1 ; 1 → Col.2 ; …
     return n === 0 ? 1 : Math.min(n, 4) + 1;
   }, [minorsCount]);
 
-  // Bonus DV : +1 si ≥2 enfants en droit de visite (borné à 5)
+  // Bonus DV : +1 si ≥ 2 enfants en droit de visite (borne max = 5)
   const finalCol = React.useMemo<BaremeColumn>(() => {
     const bonus = visitingChildrenCount >= 2 ? 1 : 0;
     return Math.min(baseCol + bonus, 5) as BaremeColumn;
@@ -189,6 +195,22 @@ const UserProfilePage: React.FC = () => {
     [adresseProfil]
   );
 
+  // Wrapper sûr pour DatesCard (évite "onChange is not a function")
+  const handleDatesChange = React.useCallback(
+    (field: string, value: any) => {
+      state.updateProfile(field, value);
+    },
+    [state]
+  );
+
+  // Petite normalisation (affichage IncomeCard)
+  const normalizeRole = (s?: string) =>
+    (s || "")
+      .toLowerCase()
+      .replace(/-/g, "–")
+      .replace(/\s*–\s*/g, " – ")
+      .trim();
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
       <div className="max-w-6xl mx-auto space-y-6">
@@ -199,11 +221,7 @@ const UserProfilePage: React.FC = () => {
           onCopyAddress={state.copyAddressInfo}
           onAction={() => setAttOpen(true)} // ← ouvre l’attestation
           applicantTo={`/users/${encodeURIComponent(userId ?? "")}`}
-          tenantTo={
-            isSubsidized
-              ? `/tenants/${encodeURIComponent(userId ?? "")}`
-              : undefined
-          }
+          tenantTo={isSubsidized ? `/tenants/${encodeURIComponent(userId ?? "")}` : undefined}
         />
 
         <InteractionBar onClick={state.handleInteractionClick} />
@@ -216,63 +234,23 @@ const UserProfilePage: React.FC = () => {
               size="tight"
               offsetTop={80}
               items={[
-                {
-                  id: "section-counters",
-                  label: "En bref",
-                  icon: QuickNavIcons.menage,
-                },
-                {
-                  id: "section-dates",
-                  label: "Dates",
-                  icon: QuickNavIcons.timeline,
-                },
-                {
-                  id: "section-info",
-                  label: "Informations",
-                  icon: QuickNavIcons.info,
-                },
-                {
-                  id: "section-household",
-                  label: "Ménage",
-                  icon: QuickNavIcons.menage,
-                },
-                {
-                  id: "section-income",
-                  label: "Revenus",
-                  icon: QuickNavIcons.revenus,
-                },
-                {
-                  id: "section-timeline",
-                  label: "Interactions",
-                  icon: QuickNavIcons.timeline,
-                },
-                {
-                  id: "section-docs",
-                  label: "Documents",
-                  icon: QuickNavIcons.docs,
-                },
-                {
-                  id: "section-proposals",
-                  label: "Propositions",
-                  icon: QuickNavIcons.props,
-                },
-                {
-                  id: "section-history",
-                  label: "Historique",
-                  icon: QuickNavIcons.timeline,
-                },
-                {
-                  id: "section-session",
-                  label: "Séance",
-                  icon: QuickNavIcons.timeline,
-                },
+                { id: "section-counters", label: "En bref", icon: QuickNavIcons.menage },
+                { id: "section-dates", label: "Dates", icon: QuickNavIcons.timeline },
+                { id: "section-info", label: "Informations", icon: QuickNavIcons.info },
+                { id: "section-household", label: "Ménage", icon: QuickNavIcons.menage },
+                { id: "section-income", label: "Revenus", icon: QuickNavIcons.revenus },
+                { id: "section-timeline", label: "Interactions", icon: QuickNavIcons.timeline },
+                { id: "section-docs", label: "Documents", icon: QuickNavIcons.docs },
+                { id: "section-proposals", label: "Propositions", icon: QuickNavIcons.props },
+                { id: "section-history", label: "Historique", icon: QuickNavIcons.timeline },
+                { id: "section-session", label: "Séance", icon: QuickNavIcons.timeline },
               ]}
             />
           </div>
 
           {/* Contenu principal */}
           <div className="lg:col-span-9 space-y-6">
-            {/* 1) 👪 Ménage (compteurs) — plein largeur, en premier */}
+            {/* 1) 👪 Ménage (compteurs) */}
             <section id="section-counters">
               <HouseholdCounters
                 className="h-full"
@@ -288,22 +266,26 @@ const UserProfilePage: React.FC = () => {
               />
             </section>
 
-            {/* 2) 📅 Dates — plein largeur, en second */}
+            {/* 2) 📅 Dates */}
             <section id="section-dates">
               <DatesCard
-  registrationDate={state.userProfile.registrationDate}
-  lastCertificateDate={state.userProfile.lastCertificateDate}
-  deadline={state.userProfile.deadline}
-  maxRooms={state.userProfile.maxRooms}
-  minRent={minRent}
-  countedMinors={minorsCount}
-  baremeColumn={finalCol}
-  rduForBareme={rduTotal}
-  applicantAgeYears={yearsDiff(state.userProfile.birthDate)}   // ← ICI l’âge
-  annualIncomeCHF={rduTotal}                                   // ← ICI le revenu annuel
-  onChange={state.updateProfile}
-/>
-
+                registrationDate={state.userProfile.registrationDate}
+                lastCertificateDate={state.userProfile.lastCertificateDate}
+                deadline={state.userProfile.deadline}
+                maxRooms={state.userProfile.maxRooms}
+                minRent={minRent}
+                /* Comptages pour la pré-sélection (règle ménage) */
+                adultsCount={adultsCount}                 // ← ignoré si DatesCard ne l’utilise pas
+                countedMinors={minorsCount}
+                visitingChildrenCount={visitingChildrenCount} // ← idem
+                /* Barème / revenu */
+                baremeColumn={finalCol}
+                rduForBareme={rduTotal}
+                /* Interdiction 1,5p si âge ≥ 25 ou revenu > 1’500/mois */
+                applicantAgeYears={yearsDiff(state.userProfile.birthDate)}
+                annualIncomeCHF={rduTotal}
+                onChange={handleDatesChange}
+              />
             </section>
 
             {/* 3) Informations personnelles */}
@@ -397,8 +379,7 @@ const UserProfilePage: React.FC = () => {
             {/* 9) Historique (placeholder) */}
             <section id="section-history">
               <div className="rounded-md border bg-white p-4 text-sm text-slate-600">
-                Historique global — à intégrer (journal/audit spécifique
-                usager).
+                Historique global — à intégrer (journal/audit spécifique usager).
               </div>
             </section>
 

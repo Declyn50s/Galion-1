@@ -15,13 +15,9 @@ type MainPerson = {
 type Props = {
   className?: string
   density?: "default" | "compact" | "tight"
-  /** Personne principale (usager sélectionné) */
   main?: MainPerson
-  /** Ménage (autres personnes) */
   household: HouseholdMember[]
-  /** Variante d’affichage: barre minimaliste vs panneau */
   variant?: "strip" | "panel"
-  /** Afficher une mini-légende sous la barre (false par défaut) */
   showLegend?: boolean
 }
 
@@ -58,7 +54,6 @@ const yearsDiff = (iso?: string) => {
   return age
 }
 
-// ————— Rôles —————
 const normalize = (s?: string) =>
   (s ?? "")
     .toLowerCase()
@@ -68,7 +63,7 @@ const normalize = (s?: string) =>
     .replace(/\s+/g, " ")
     .trim()
 
-/** Enfant “droit de visite” (DV) — ne doit PAS être compté dans total/adultes/mineurs */
+/** Enfant “droit de visite” (DV) — ne doit PAS être compté */
 const isVisitingChild = (role?: string) => {
   const r = normalize(role)
   return r.includes("enfant") && r.includes("droit de visite")
@@ -173,7 +168,7 @@ const HouseholdCounters: React.FC<Props> = ({
     )
   }
 
-  // Variante "panel"
+  // Variante panel
   return (
     <Card className={`border bg-white/80 ${pad} ${className}`}>
       <div className="mb-1 text-xs font-medium text-slate-600">👪 Comptage du ménage</div>
