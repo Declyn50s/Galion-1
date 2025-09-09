@@ -1,5 +1,5 @@
 // src/features/user-profile/components/Household/HouseholdCard.tsx
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,71 +18,22 @@ import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { RESIDENCE_PERMIT_OPTIONS } from "@/types/user";
 
-// ✅ imports du sélecteur nationalité + champ échéance permis
 import NationalitySelector from "@/components/NationalitySelector";
 import PermitExpiryField from "@/features/user-profile/components/PersonalInfoCard/PermitExpiryField";
 
+// ✅ util commun rôles
+import {
+  canonicalizeRole,
+  toDisplayRole,
+  ROLE_OPTIONS,
+  normalize as norm,
+} from "@/lib/roles";
+
 // ───────────────────────────────────────────────────────────
-// Helpers normalisation / mapping rôles
-const normalize = (s?: string) =>
-  (s ?? "")
-    .toLowerCase()
-    .replace(/[–—-]/g, " ")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+const isSpouse = (role?: string) => canonicalizeRole(role) === "conjoint";
 
-const isSpouse = (role?: string) => {
-  const r = normalize(role);
-  return r === "conjoint" || r === "conjointe";
-};
-
-// Rôles canoniques stockés
-type CanonicalRole =
-  | "conjoint"
-  | "enfant"
-  | "enfant garde alternée"
-  | "enfant droit de visite"
-  | "autre";
-
-// Rôles affichés par HouseholdMemberRow (doivent correspondre EXACTEMENT à ses options)
-type DisplayRole =
-  | "Conjoint"
-  | "Enfant à charge"
-  | "Enfant – garde alternée"
-  | "Enfant – droit de visite"
-  | "Autre";
-
-// Map Select (formulaire rapide) → valeurs canoniques
-const QUICK_ROLE_OPTIONS: { value: CanonicalRole; label: string }[] = [
-  { value: "conjoint", label: "Conjoint·e" },
-  { value: "enfant", label: "Enfant" },
-  { value: "enfant droit de visite", label: "Enfant (droit de visite)" },
-  { value: "enfant garde alternée", label: "Enfant (garde alternée)" },
-  { value: "autre", label: "Autre" },
-];
-
-// Canonique → affiché dans la row
-function toDisplayRole(role?: string): DisplayRole {
-  const r = normalize(role);
-  if (r === "conjoint" || r === "conjointe") return "Conjoint";
-  if (r === "enfant") return "Enfant à charge";
-  if (r === "enfant garde alternee" || r === "enfant garde alternée")
-    return "Enfant – garde alternée";
-  if (r === "enfant droit de visite") return "Enfant – droit de visite";
-  return "Autre";
-}
-
-// Affiché (row) → canonique (stock)
-function toCanonicalRole(display: string): CanonicalRole {
-  const r = normalize(display);
-  if (r === "conjoint") return "conjoint";
-  if (r === "enfant a charge") return "enfant";
-  if (r === "enfant garde alternee") return "enfant garde alternée";
-  if (r === "enfant droit de visite") return "enfant droit de visite";
-  return "autre";
-}
+// Rôles canoniques pour le sélecteur rapide
+type CanonicalRole = typeof ROLE_OPTIONS[number]["value"];
 
 // ───────────────────────────────────────────────────────────
 
@@ -117,8 +68,8 @@ const HouseholdCard: React.FC<Props> = ({
   const [status, setStatus] = useState("");
 
   const hasSpouse = useMemo(
-    () => household.some((h) => isSpouse(h.role)),
-    [household]
+   () => household.some((h) => canonicalizeRole(h.role) === "conjoint"),
+  [household]
   );
 
   const resetFields = () => {
@@ -134,7 +85,7 @@ const HouseholdCard: React.FC<Props> = ({
     setStatus("");
   };
 
-  // NSS → tentative de préremplissage (démo)
+  // NSS → démo
   const handleSearchByNSS = async () => {
     if (!nss.trim()) {
       toast({
@@ -147,8 +98,6 @@ const HouseholdCard: React.FC<Props> = ({
     try {
       const res = await fetch("/people.json", { cache: "no-store" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      // const people = (await res.json()) as Array<any>;
-      // Démo : pas de correspondance → saisie manuelle
       toast({
         title: "Aucune fiche trouvée",
         description: "Renseigne les champs manuellement.",
@@ -164,7 +113,23 @@ const HouseholdCard: React.FC<Props> = ({
     }
   };
 
-  // Changement nationalité : Suisse => pas de permis ; sinon on affiche permis
+  // Âge
+const toDate = (s?: string) => {
+  if (!s) return undefined;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+};
+const yearsDiff = (iso?: string) => {
+  const d = toDate(iso);
+  if (!d) return 0;
+  const today = new Date();
+  let age = today.getFullYear() - d.getFullYear();
+  const md = today.getMonth() - d.getMonth();
+  if (md < 0 || (md === 0 && today.getDate() < d.getDate())) age--;
+  return age;
+};
+
+  // Nationalité : Suisse => pas de permis
   const handleNationalityChange = (val: string) => {
     setNationality(val);
     if (val === "Suisse") {
@@ -202,6 +167,15 @@ const HouseholdCard: React.FC<Props> = ({
       });
       return;
     }
+     // Conjoint doit être majeur (≥18)
+  if (isSpouse(roleCanonical) && yearsDiff(birthDate) < 18) {
+    toast({
+      variant: "destructive",
+      title: "Conjoint invalide",
+      description: "Le conjoint doit être majeur (≥ 18 ans).",
+    });
+    return;
+  }
 
     // Si non-Suisse et permis B/F → exiger une échéance
     const needsExpiry =
@@ -223,7 +197,7 @@ const HouseholdCard: React.FC<Props> = ({
     const payload: Omit<HouseholdMember, "id"> & {
       permitExpiryDate?: string;
     } = {
-      role: roleCanonical, // ← stock canonique
+      role: roleCanonical, // ← **toujours canonique**
       name: `${firstName} ${lastName}`.trim(),
       status: status || "N/A",
       birthDate,
@@ -246,6 +220,17 @@ const HouseholdCard: React.FC<Props> = ({
     resetFields();
     setAdding(false);
   };
+
+  // ✅ NORMALISATION DES RÔLES EN AMONT (corrige les anciennes variantes)
+  useEffect(() => {
+    if (!onUpdate) return;
+    household.forEach((m) => {
+      const canon = canonicalizeRole(m.role);
+      if (canon !== m.role) {
+        onUpdate(m.id, { role: canon });
+      }
+    });
+  }, [household, onUpdate]);
 
   return (
     <Card className="user-profile-header col-span-5">
@@ -319,11 +304,14 @@ const HouseholdCard: React.FC<Props> = ({
                     <SelectValue placeholder="Sélectionner…" />
                   </SelectTrigger>
                   <SelectContent>
-                    {QUICK_ROLE_OPTIONS.map((opt) => (
+                    {ROLE_OPTIONS.map((opt) => (
                       <SelectItem
                         key={opt.value}
                         value={opt.value}
-                        disabled={hasSpouse && isSpouse(opt.value)}
+                        disabled={
+        (hasSpouse && canonicalizeRole(opt.value) === "conjoint") ||
+        (canonicalizeRole(opt.value) === "conjoint" && birthDate && yearsDiff(birthDate) < 18)
+       }
                       >
                         {opt.label}
                       </SelectItem>
@@ -373,7 +361,7 @@ const HouseholdCard: React.FC<Props> = ({
                 </Select>
               </div>
 
-              {/* ✅ Nationalité avec ton composant */}
+              {/* Nationalité */}
               <div className="space-y-1 md:col-span-2">
                 <Label>Nationalité</Label>
                 <NationalitySelector
@@ -382,7 +370,7 @@ const HouseholdCard: React.FC<Props> = ({
                 />
               </div>
 
-              {/* ✅ Permis : affiché uniquement si non Suisse */}
+              {/* Permis : affiché uniquement si non Suisse */}
               {nationality !== "Suisse" && (
                 <div className="space-y-1">
                   <Label>Permis</Label>
@@ -411,7 +399,7 @@ const HouseholdCard: React.FC<Props> = ({
                 </div>
               )}
 
-              {/* ✅ Échéance pour B/F */}
+              {/* Échéance pour B/F */}
               {nationality !== "Suisse" && (
                 <div className="md:col-span-2">
                   <PermitExpiryField
@@ -455,25 +443,36 @@ const HouseholdCard: React.FC<Props> = ({
         ) : (
           <div className="space-y-4">
             {household.map((m) => {
-              const displayMember: HouseholdMember = {
-                ...m,
-                // ⚠️ on injecte le libellé attendu par HouseholdMemberRow
-                role: toDisplayRole(m.role),
-              };
+              // ✅ on dérive l’affichage à partir du **canonique**
+              const canonical = canonicalizeRole(m.role);
               return (
                 <HouseholdMemberRow
-                  key={m.id}
-                  member={displayMember}
-                  onRemove={() => onRemove(m.id)}
-                  onSwap={() => onSwap(m)}
-                  // ↔️ conversion affiché → canonique au changement
-                  onUpdateRole={
-                    onUpdate
-                      ? (newDisplay) =>
-                          onUpdate(m.id, { role: toCanonicalRole(newDisplay) })
-                      : undefined
-                  }
-                />
+  key={m.id}
+  member={{ ...m, role: canonicalizeRole(m.role) }}
+  onRemove={() => onRemove(m.id)}
+  onSwap={() => onSwap(m)}
+  onUpdate={
+    onUpdate
+      ? (patch) => {
+          const p = { ...patch } as Partial<HouseholdMember>;
+          if (p.role) {
+            const nextRole = canonicalizeRole(p.role);
+           // Interdit "conjoint" si la personne est mineure
+           if (nextRole === "conjoint" && yearsDiff(m.birthDate) < 18) {
+             toast({
+               variant: "destructive",
+               title: "Conjoint invalide",
+               description: "Le conjoint doit être majeur (≥ 18 ans).",
+             });
+             return; // on bloque la mise à jour
+           }
+            p.role = nextRole;
+          }
+          onUpdate(m.id, p);
+        }
+      : undefined
+  }
+/>
               );
             })}
           </div>

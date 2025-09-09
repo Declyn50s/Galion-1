@@ -18,6 +18,7 @@ import QuickNavSticky, {
   QuickNavIcons,
 } from "./components/QuickNavSticky/QuickNavSticky";
 import AttestationDialog from "@/features/attestation/AttestationDialog";
+import { canonicalizeRole } from "@/lib/roles";
 
 // LLM / immeubles subventionnés
 import { isAdresseInImmeubles } from "@/data/immeubles";
@@ -64,31 +65,15 @@ const yearsDiff = (iso?: string) => {
   return age;
 };
 
-// ── Normalisation “libre” des rôles (tirets, accents, espaces, casse)
-const normalizeLoose = (s?: string) =>
-  (s ?? "")
-    .toLowerCase()
-    .replace(/[–—-]/g, " ")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+// DV = uniquement "enfant droit de visite" (via rôle canonique)
+ const isVisitingChildRole = (role?: string) =>
+   canonicalizeRole(role) === "enfant droit de visite";
 
-const isVisitingChildRole = (role?: string) => {
-  const r = normalizeLoose(role);
-  return r.startsWith("enfant") && r.includes("droit de visite");
-};
-
-// Enfant “compté” pour la colonne de barème (hors DV)
-const isCountedChildRole = (role?: string) => {
-  const r = normalizeLoose(role);
-  if (isVisitingChildRole(role)) return false;
-  return (
-    r === "enfant" ||
-    r.includes("a charge") ||
-    r.includes("garde alternee")
-  );
-};
+ // Enfant “compté” (barème) = "enfant" ou "enfant garde alternée", JAMAIS DV
+ const isCountedChildRole = (role?: string) => {
+   const c = canonicalizeRole(role);
+   return c === "enfant" || c === "enfant garde alternée";
+ };
 
 // Reconstruit une “ligne adresse” exploitable par isAdresseInImmeubles
 function addressLineFromProfile(p: any): string {
@@ -161,8 +146,9 @@ const UserProfilePage: React.FC = () => {
   }, [household]);
 
   // Adultes pour distinguer personne seule vs couple (on exclut seulement DV)
-  const adultsCount = React.useMemo(() => {
-    let a = yearsDiff(state.userProfile.birthDate) >= 18 ? 1 : 0;
+   const adultsCount = React.useMemo(() => {
+   const hasBirth = !!state.userProfile.birthDate;
+   let a = hasBirth ? (yearsDiff(state.userProfile.birthDate) >= 18 ? 1 : 0) : 1;
     for (const m of household) {
       if (isVisitingChildRole(m.role)) continue;
       if (yearsDiff(m.birthDate) >= 18) a += 1;
@@ -176,11 +162,10 @@ const UserProfilePage: React.FC = () => {
     return n === 0 ? 1 : Math.min(n, 4) + 1;
   }, [minorsCount]);
 
-  // Bonus DV : +1 si ≥ 2 enfants en droit de visite (borne max = 5)
-  const finalCol = React.useMemo<BaremeColumn>(() => {
-    const bonus = visitingChildrenCount >= 2 ? 1 : 0;
-    return Math.min(baseCol + bonus, 5) as BaremeColumn;
-  }, [baseCol, visitingChildrenCount]);
+ // Colonne finale = colonne de base (DV n'influe PAS la colonne)
+ const finalCol = React.useMemo<BaremeColumn>(() => {
+   return baseCol as BaremeColumn;
+ }, [baseCol]);
 
   // Loyer min (limite barème) d’après le RDU total et la colonne finale
   const minRent = React.useMemo(() => {
@@ -330,24 +315,20 @@ const UserProfilePage: React.FC = () => {
                     residencePermit: state.userProfile.residencePermit,
                     permitExpiryDate: state.userProfile.permitExpiryDate,
                   },
-                  ...household.map((m: any) => {
-                    const r = normalizeRole(m.role);
-                    const role =
-                      r === "conjoint"
-                        ? "conjoint"
-                        : r.startsWith("enfant")
-                        ? "enfant"
-                        : "autre";
-                    return {
-                      id: m.id,
-                      role,
-                      name: m.name,
-                      birthDate: m.birthDate,
-                      nationality: m.nationality,
-                      residencePermit: m.residencePermit,
-                      permitExpiryDate: m.permitExpiryDate,
-                    };
-                  }),
+                   ...household.map((m: any) => {
+   const c = canonicalizeRole(m.role);
+   const role = c === "conjoint" ? "conjoint" : c.startsWith("enfant") ? "enfant" : "autre";
+   return {
+     id: m.id,
+     role,                 // rôle “coarse” attendu par IncomeCard (demandeur/conjoint/enfant/autre)
+     rawRole: m.role,      // 👈 on passe le rôle brut pour détecter DV / GA correctement
+     name: m.name,
+     birthDate: m.birthDate,
+     nationality: m.nationality,
+     residencePermit: m.residencePermit,
+     permitExpiryDate: m.permitExpiryDate,
+   };
+ }),
                 ]}
                 countMode="counted"
                 onTotalsChange={({ totalRDUHousehold }) =>

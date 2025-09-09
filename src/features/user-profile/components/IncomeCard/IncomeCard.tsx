@@ -1,5 +1,6 @@
 // src/features/user-profile/components/IncomeCard/IncomeCard.tsx
 import React, { useEffect, useMemo, useState } from "react"
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { Input } from "@/components/ui/input"
@@ -8,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Trash2, Plus } from "lucide-react"
 
 import { StatusSelect, SelectedStatus } from "@/components/StatusSelect"
+
 import {
   ROLE_LABEL,
   type Role,
@@ -20,10 +22,12 @@ import {
   computeTotalsFor,
   chf,
 } from "./model"
+
 import MoneyBlockEditor from "./parts/MoneyBlockEditor"
 import AnnualBlockEditor from "./parts/AnnualBlockEditor"
 import RenteAIEditor from "./parts/RenteAIEditor"
 import QuickTagGrid from "./parts/QuickTagGrid"
+import SummaryField from "./parts/SummaryField"
 
 import {
   Select,
@@ -36,98 +40,17 @@ import {
 // ✅ barème officiel (plafonds RDU selon loyer & colonne)
 import { computeBareme, type BaremeColumn } from "@/lib/bareme"
 
-/* ---------- helpers permis (cohérents avec HouseholdCounters) ---------- */
-const toDate = (s?: string) => {
-  if (!s) return undefined
-  const d = new Date(s)
-  return Number.isNaN(d.getTime()) ? undefined : d
-}
-const isPermitValid = (nationality?: string, permit?: string, expiry?: string) => {
-  const nat = (nationality ?? "").trim().toLowerCase()
-  const p = (permit ?? "").trim().toLowerCase()
-  if (nat === "suisse") return true
-  if (p === "citoyen" || p === "citizen") return true
-  if (p === "permis c" || p === "c") return true
-  if (p === "permis b" || p === "b" || p === "permis f" || p === "f") {
-    const d = toDate(expiry)
-    if (!d) return false
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    return d >= today
-  }
-  return false
-}
+// ✅ helpers et colonnes
+import {
+  BAREME_COLUMNS,
+  isChildCounted,
+  isDV,
+  isPermitValid,
+  yearsDiff,
+} from "./utils"
 
-/* ---------- helpers barème / rôles ---------- */
-const yearsDiff = (iso?: string) => {
-  if (!iso) return 0
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return 0
-  const today = new Date()
-  let age = today.getFullYear() - d.getFullYear()
-  const md = today.getMonth() - d.getMonth()
-  if (md < 0 || (md === 0 && today.getDate() < d.getDate())) age--
-  return age
-}
-
-const norm = (s?: string) =>
-  (s ?? "")
-    .toLowerCase()
-    .replace(/[–—-]/g, " ")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-
-/** DV = rôle qui commence par "enfant" ET contient "droit de visite" */
-const isDV = (rawRole?: string) => {
-  const r = norm(rawRole)
-  return r.startsWith("enfant") && r.includes("droit de visite")
-}
-
-/** Enfant “compté” = rôle enfant hors DV */
-const isChildCounted = (role: Role, rawRole?: string) => {
-  if (rawRole) {
-    const r = norm(rawRole)
-    if (!r.startsWith("enfant")) return false
-    if (r.includes("droit de visite")) return false
-    // "enfant", "enfant a charge", "enfant garde alternee", etc. => OK
-    return true
-  }
-  // fallback si pas de rawRole : on ne sait pas distinguer DV → on compte uniquement si role === "enfant"
-  return role === "enfant"
-}
-
-const BAREME_COLUMNS = [
-  { id: 1, label: "1 à 2 personnes ou groupe", info: "0 enfant" },
-  { id: 2, label: "avec 1 enfant", info: "1 enfant" },
-  { id: 3, label: "avec 2 enfants", info: "2 enfants" },
-  { id: 4, label: "avec 3 enfants", info: "3 enfants" },
-  { id: 5, label: "avec 4 enfants ou +", info: "≥ 4 enfants" },
-]
-
-/** Forme attendue pour la liste des membres passée depuis UserProfilePage */
-export type PeopleItem = {
-  id: string
-  role: Role
-  /** Rôle “brut” tel que saisi dans le ménage (ex.: "Enfant – droit de visite") */
-  rawRole?: string
-  name: string
-  statuses?: SelectedStatus[]
-  // pour le comptage barème
-  birthDate?: string
-  nationality?: string
-  residencePermit?: string
-  permitExpiryDate?: string
-}
-
-/** Contexte optionnel — affichage des métriques barème pour le locataire (TenantProfilePage). */
-type TenantContext = {
-  /** Active le bloc “Calcul barème (locataire)” */
-  enabled?: boolean
-  /** Loyer net mensuel du bail (CHF) */
-  rentNetMonthly?: number | null
-}
+// ✅ types contextuels
+import type { PeopleItem, TenantContext } from "./types"
 
 /** API : tu passes les membres du ménage (people). L’état vit ici (uncontrolled). */
 export default function IncomeCard({
@@ -194,39 +117,42 @@ export default function IncomeCard({
     })
   }, [peopleSignature, people])
 
-  /* ─────────────────── Colonne barème (AUTO) — exclut DV + bonus DV ─────────────────── */
-  const { countedMinors, visitingChildren, autoBaremeCol } = useMemo(() => {
+  /* ─────────────────── Colonne barème (AUTO) — DV correctement exclus + bonus DV ─────────────────── */
+  const { countedMinors, visitingChildrenMinors, autoBaremeCol } = useMemo(() => {
     let minors = 0
-    let dv = 0
+    let dvMinors = 0
 
     for (const m of people) {
       const age = yearsDiff(m.birthDate)
-      const dvChild = isDV(m.rawRole)
 
-      // DV : jamais comptés, mais on cumule les DV mineurs pour le bonus
-      if (dvChild) {
-        if (age < 18) dv += 1
-        continue
+      // DV : détecter via rawRole/role ; ne compter DV que s'ils sont MINEURS
+      const dvDetected =
+        isDV(m.rawRole) ||
+        isDV(typeof (m as any).role === "string" ? (m as any).role : String((m as any).role ?? ""))
+
+      if (dvDetected) {
+        if (age < 18) dvMinors += 1
+        continue // DV (mineurs ou majeurs) n'entrent JAMAIS dans le décompte des enfants pour la colonne
       }
 
-      // Enfants comptés : rôle enfant HORS DV + mineur + (si mode "counted") permis valide
-      const childRole = isChildCounted(m.role, m.rawRole)
+      // Enfant “compté” = rôle enfant/garde alternée (hors DV) + mineur + (si "counted") permis valide
+      const childRole = isChildCounted(
+        typeof (m as any).role === "string" ? (m as any).role : String((m as any).role ?? ""),
+        m.rawRole
+      )
       if (childRole && age < 18) {
         if (countMode === "all") {
           minors += 1
-        } else {
-          if (isPermitValid(m.nationality, m.residencePermit, m.permitExpiryDate)) {
-            minors += 1
-          }
+        } else if (isPermitValid(m.nationality, m.residencePermit, m.permitExpiryDate)) {
+          minors += 1
         }
       }
     }
 
-    const base = minors === 0 ? 1 : Math.min(minors, 4) + 1
-    const bonus = dv >= 2 ? 1 : 0
-    const finalCol = Math.min(base + bonus, 5)
+    // Colonne = uniquement selon enfants COMPTÉS (0→Col1, 1→Col2, 2→Col3, 3→Col4, ≥4→Col5)
+    const finalCol = (minors === 0 ? 1 : Math.min(minors, 4) + 1) as BaremeColumn
 
-    return { countedMinors: minors, visitingChildren: dv, autoBaremeCol: finalCol }
+    return { countedMinors: minors, visitingChildrenMinors: dvMinors, autoBaremeCol: finalCol }
   }, [people, countMode])
 
   // Mode et valeur manuelle
@@ -430,7 +356,7 @@ export default function IncomeCard({
   }, [tenantContext?.enabled, rentNetMonthly, baremeSelected])
 
   const capIncome = baremeInfo?.incomeCap ?? null
-  const rentFloor = baremeInfo?.rentRange.min ?? null
+  const rentFloor = baremeInfo?.rentRange?.min ?? null
 
   const depassementAbs = useMemo(() => {
     if (!capIncome) return null
@@ -510,7 +436,7 @@ export default function IncomeCard({
 
             {/* Statuts */}
             <StatusSelect
-              value={person.statuses}
+              value={person.statuses as SelectedStatus[]}
               onChange={(v) => updatePerson(person.id, { statuses: v })}
               className="mt-1"
             />
@@ -957,9 +883,6 @@ export default function IncomeCard({
                   {countedMinors === 0
                     ? "0 enfant → Col. 1"
                     : `${countedMinors} enfant${countedMinors > 1 ? "s" : ""} → Col. ${Math.min(Math.max(1, countedMinors === 0 ? 1 : Math.min(countedMinors, 4) + 1), 5)}`}
-                  {visitingChildren > 0 && (
-                    <> (DV non comptés{visitingChildren >= 2 ? " • bonus +1" : ""})</>
-                  )}
                 </div>
               </div>
 
@@ -1002,16 +925,6 @@ export default function IncomeCard({
           )}
         </CardContent>
       </Card>
-    </div>
-  )
-}
-
-/* ------- petits helpers UI ------- */
-function SummaryField({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-md border px-3 py-2 bg-slate-50 text-sm flex items-center justify-between">
-      <span className="text-slate-600 text-xs">{label}</span>
-      <span className="font-medium">{children}</span>
     </div>
   )
 }

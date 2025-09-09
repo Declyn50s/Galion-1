@@ -3,6 +3,7 @@ import React, { useMemo } from "react"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import type { HouseholdMember } from "@/types/user"
+import { canonicalizeRole } from "@/lib/roles";
 
 type MainPerson = {
   birthDate?: string
@@ -63,11 +64,9 @@ const normalize = (s?: string) =>
     .replace(/\s+/g, " ")
     .trim()
 
-/** Enfant “droit de visite” (DV) — ne doit PAS être compté */
-const isVisitingChild = (role?: string) => {
-  const r = normalize(role)
-  return r.includes("enfant") && r.includes("droit de visite")
-}
+/** DV par libellé */
+const isVisitingChildRole = (role?: string) =>
+  canonicalizeRole(role) === "enfant droit de visite";
 
 const Pill: React.FC<{ label: string; value: number; title?: string }> = ({ label, value, title }) => (
   <div
@@ -92,7 +91,7 @@ const HouseholdCounters: React.FC<Props> = ({
     let adults = 0
     let minors = 0
     let excluded = 0
-    let visitingChildren = 0
+    let visitingChildren = 0 // ❗️DV MINEURS UNIQUEMENT
 
     const pushCounted = (birthDate?: string, nationality?: string, permit?: string, expiry?: string) => {
       if (!isPermitValid(nationality, permit, expiry)) {
@@ -109,21 +108,28 @@ const HouseholdCounters: React.FC<Props> = ({
     if (main) {
       const { birthDate, nationality, residencePermit, permitExpiryDate } = main
       if (!nationality && !residencePermit && !permitExpiryDate) {
-        const age = yearsDiff(birthDate)
-        total++
-        if (age >= 18) adults++
-        else minors++
-      } else {
+   const age = yearsDiff(birthDate)
+   total++
+   if (!birthDate || age >= 18) adults++   // sans date → assume adulte
+   else minors++
+ } else {
         pushCounted(birthDate, nationality, residencePermit, permitExpiryDate)
       }
     }
 
     // Membres du ménage
     for (const m of household) {
-      if (isVisitingChild(m.role)) {
+      const age = yearsDiff(m.birthDate)
+      const isDV = isVisitingChildRole(m.role)
+
+      // ✅ Règle : DV = uniquement si mineur ; DV majeur → plus DV
+      if (isDV && age < 18) {
         visitingChildren++
-        continue
+        continue // DV mineurs ne sont pas comptés
       }
+
+      // count as personne normale (DV majeurs inclus)
+      // @ts-ignore: permitExpiryDate peut ne pas être typé dans HouseholdMember
       pushCounted(m.birthDate, m.nationality, m.residencePermit, (m as any).permitExpiryDate)
     }
 
@@ -144,7 +150,7 @@ const HouseholdCounters: React.FC<Props> = ({
 
           <div className="ml-auto flex items-center gap-1">
             {counts.visitingChildren > 0 && (
-              <Pill label="Enfants en droit de visite" value={counts.visitingChildren} title="Enfants en droit de visite (non comptés)" />
+              <Pill label="Enfants en droit de visite" value={counts.visitingChildren} title="Enfants DV mineurs (non comptés)" />
             )}
             {counts.excluded > 0 && (
               <>
@@ -161,7 +167,7 @@ const HouseholdCounters: React.FC<Props> = ({
         {showLegend && (
           <p className="mt-1 text-[10px] leading-tight text-slate-500">
             Comptés = <strong>Suisse/Citoyen</strong>, <strong>Permis C</strong>, ou <strong>Permis B/F</strong> valide.
-            Les <strong>enfants en droit de visite</strong> ne sont pas comptés dans les totaux (affichés à part).
+            Les <strong>enfants en droit de visite</strong> ne sont comptés que s’ils sont <strong>mineurs</strong> (affichés à part).
           </p>
         )}
       </Card>
@@ -178,7 +184,7 @@ const HouseholdCounters: React.FC<Props> = ({
         {counts.minors > 0 && <Pill label="Mineurs" value={counts.minors} />}
         <div className="ml-auto flex items-center gap-1">
           {counts.visitingChildren > 0 && (
-            <Pill label="Enfants DV" value={counts.visitingChildren} title="Enfants en droit de visite (non comptés)" />
+            <Pill label="Enfants DV" value={counts.visitingChildren} title="Enfants DV mineurs (non comptés)" />
           )}
           {counts.excluded > 0 && (
             <>
@@ -195,7 +201,7 @@ const HouseholdCounters: React.FC<Props> = ({
       {showLegend && (
         <p className="mt-1 text-[10px] leading-tight text-slate-500">
           Comptés = <strong>Suisse/Citoyen</strong>, <strong>Permis C</strong>, ou <strong>Permis B/F</strong> valide.
-          Les <strong>enfants en droit de visite</strong> ne sont pas comptés dans les totaux (affichés à part).
+          Les <strong>enfants en droit de visite</strong> ne sont comptés que s’ils sont <strong>mineurs</strong> (affichés à part).
         </p>
       )}
     </Card>
