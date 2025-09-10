@@ -1,12 +1,33 @@
 export interface Interaction {
   id: string;
-  type: 'guichet' | 'telephone' | 'courrier' | 'email' | 'jaxform' | 'commentaire';
+  type:
+    | "guichet"
+    | "telephone"
+    | "courrier"
+    | "email"
+    | "jaxform"
+    | "commentaire";
   subject: string;
   customSubject?: string;
+
+  /** Texte principal (commentaire) */
   comment: string;
+
+  /** Tags “collaborateurs/mentions” */
   tags: string[];
+
+  /** Texte d’observation */
   observations: string;
+
+  /** Badge alerte */
   isAlert: boolean;
+
+  /** ✅ OPTIONS de commentaire cochées (dossier, docs listés, …) */
+  commentOptions?: string[];
+
+  /** ✅ TAGS d’observation (Refus, Incomplet, Dérogation) */
+  observationTags?: string[];
+
   createdAt: string;
   updatedAt: string;
 }
@@ -18,67 +39,77 @@ export interface InteractionFormData {
   tags: string[];
   observations: string;
   isAlert: boolean;
+
+  /** ✅ Ajoutés pour persister l’UI */
+  commentOptions?: string[];
+  observationTags?: string[];
 }
 
 export const PREDEFINED_SUBJECTS = [
-  'inscription',
-  'renouvellement',
-  'mise à jour',
-  'contrôle',
-  'résiliation',
-  'rendez-vous',
-  'gérance',
-  'autres'
+  "inscription",
+  "renouvellement",
+  "mise à jour",
+  "contrôle",
+  "résiliation",
+  "rendez-vous",
+  "gérance",
+  "autres",
 ];
 
 export const INTERACTION_TYPES = {
-  guichet: { label: 'Guichet', icon: 'Building', color: 'blue' },
-  telephone: { label: 'Téléphone', icon: 'Phone', color: 'green' },
-  courrier: { label: 'Courrier', icon: 'Mail', color: 'purple' },
-  email: { label: 'E-mail', icon: 'Mail', color: 'orange' },
-  jaxform: { label: 'Jaxform', icon: 'FileCheck', color: 'indigo' },
-  commentaire: { label: 'Commentaire', icon: 'MessageSquare', color: 'yellow' }
+  guichet: { label: "Guichet", icon: "Building", color: "blue" },
+  telephone: { label: "Téléphone", icon: "Phone", color: "green" },
+  courrier: { label: "Courrier", icon: "Mail", color: "purple" },
+  email: { label: "E-mail", icon: "Mail", color: "orange" },
+  jaxform: { label: "Jaxform", icon: "FileCheck", color: "indigo" },
+  commentaire: { label: "Commentaire", icon: "MessageSquare", color: "yellow" },
 } as const;
 
-// Mock API functions
+// Mock API (facultatif – inchangé sauf prise en compte des nouveaux champs)
 export const mockAPI = {
-  create: async (data: InteractionFormData & { type: string }): Promise<Interaction> => {
-    await new Promise(resolve => setTimeout(resolve, 500)); // Simulate API delay
-    
+  create: async (
+    data: InteractionFormData & { type: string }
+  ): Promise<Interaction> => {
+    await new Promise((r) => setTimeout(r, 300));
+    const now = new Date().toISOString();
     const interaction: Interaction = {
       id: Date.now().toString(),
-      type: data.type as Interaction['type'],
+      type: data.type as Interaction["type"],
       subject: data.subject,
       customSubject: data.customSubject,
       comment: data.comment,
       tags: data.tags,
       observations: data.observations,
       isAlert: data.isAlert,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      commentOptions: data.commentOptions ?? [],
+      observationTags: data.observationTags ?? [],
+      createdAt: now,
+      updatedAt: now,
     };
-    
-    console.log('Created interaction:', interaction);
     return interaction;
   },
-  
-  update: async (id: string, data: Partial<InteractionFormData>): Promise<Interaction> => {
-    await new Promise(resolve => setTimeout(resolve, 300)); // Simulate API delay
-    
+
+  update: async (
+    id: string,
+    data: Partial<InteractionFormData>
+  ): Promise<Interaction> => {
+    await new Promise((r) => setTimeout(r, 200));
+    const now = new Date().toISOString();
+    // ⚠️ C’est un mock : renvoie un objet “complet” simplifié
     const interaction: Interaction = {
       id,
-      type: 'guichet', // Mock type
-      subject: data.subject || '',
+      type: "guichet",
+      subject: data.subject || "",
       customSubject: data.customSubject,
-      comment: data.comment || '',
+      comment: data.comment || "",
       tags: data.tags || [],
-      observations: data.observations || '',
-      isAlert: data.isAlert || false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      observations: data.observations || "",
+      isAlert: !!data.isAlert,
+      commentOptions: data.commentOptions ?? [],
+      observationTags: data.observationTags ?? [],
+      createdAt: now,
+      updatedAt: now,
     };
-    
-    console.log('Updated interaction:', interaction);
     return interaction;
-  }
+  },
 };

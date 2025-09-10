@@ -9,7 +9,7 @@ import IncomeCard from "./components/IncomeCard/IncomeCard";
 import PersonalInfoCard from "./components/PersonalInfoCard";
 import HouseholdCard from "./components/Household/HouseholdCard";
 import { useUserProfileState } from "./hooks/useUserProfileState";
-import { InteractionDialog } from "@/components/InteractionDialog";
+import InteractionDialog from "@/components/InteractionDialog"; // ✅ import par défaut
 import DocumentManager from "./components/DocumentManager/DocumentManager";
 import InteractionTimeline from "./components/InteractionTimeline/InteractionTimeline";
 import HousingProposals from "./components/HousingProposals/HousingProposals";
@@ -19,6 +19,7 @@ import QuickNavSticky, {
 } from "./components/QuickNavSticky/QuickNavSticky";
 import AttestationDialog from "@/features/attestation/AttestationDialog";
 import { canonicalizeRole } from "@/lib/roles";
+import { useInteractionsStore } from "@/features/interactions/store";
 
 // LLM / immeubles subventionnés
 import { isAdresseInImmeubles } from "@/data/immeubles";
@@ -34,7 +35,11 @@ const toDate = (s?: string) => {
   return Number.isNaN(d.getTime()) ? undefined : d;
 };
 
-const isPermitValid = (nationality?: string, permit?: string, expiry?: string) => {
+const isPermitValid = (
+  nationality?: string,
+  permit?: string,
+  expiry?: string
+) => {
   const nat = (nationality ?? "").trim().toLowerCase();
   const p = (permit ?? "").trim().toLowerCase();
 
@@ -66,18 +71,19 @@ const yearsDiff = (iso?: string) => {
 };
 
 // DV = uniquement "enfant droit de visite" (via rôle canonique)
- const isVisitingChildRole = (role?: string) =>
-   canonicalizeRole(role) === "enfant droit de visite";
+const isVisitingChildRole = (role?: string) =>
+  canonicalizeRole(role) === "enfant droit de visite";
 
- // Enfant “compté” (barème) = "enfant" ou "enfant garde alternée", JAMAIS DV
- const isCountedChildRole = (role?: string) => {
-   const c = canonicalizeRole(role);
-   return c === "enfant" || c === "enfant garde alternée";
- };
+// Enfant “compté” (barème) = "enfant" ou "enfant garde alternée", JAMAIS DV
+const isCountedChildRole = (role?: string) => {
+  const c = canonicalizeRole(role);
+  return c === "enfant" || c === "enfant garde alternée";
+};
 
 // Reconstruit une “ligne adresse” exploitable par isAdresseInImmeubles
 function addressLineFromProfile(p: any): string {
-  const direct = p.adresse ?? p.address ?? p.addressLine ?? p.addressLine1 ?? "";
+  const direct =
+    p.adresse ?? p.address ?? p.addressLine ?? p.addressLine1 ?? "";
   if (direct && direct.trim()) return direct.trim();
 
   const parts = [
@@ -95,7 +101,9 @@ function buildAttestationDataFromProfile(p: any): Record<string, string> {
     PRENOM: p.firstName || "",
     CIVILITE: p.gender === "Féminin" ? "Madame" : "Monsieur",
     ADRESSE_L1:
-      p.adresse ?? p.address ?? [p.street, p.streetNumber].filter(Boolean).join(" "),
+      p.adresse ??
+      p.address ??
+      [p.street, p.streetNumber].filter(Boolean).join(" "),
     ADRESSE_L2: p.addressComplement ?? p.complement ?? "",
     NPA: p.postalCode || "",
     VILLE: p.city || "Lausanne",
@@ -105,7 +113,9 @@ function buildAttestationDataFromProfile(p: any): Record<string, string> {
     NATIONALITE: p.nationality || "",
     PERMIS: p.residencePermit || "",
     ETAT_CIVIL: p.maritalStatus || "",
-    DATE_NAISS: p.birthDate ? new Date(p.birthDate).toLocaleDateString("fr-CH") : "",
+    DATE_NAISS: p.birthDate
+      ? new Date(p.birthDate).toLocaleDateString("fr-CH")
+      : "",
     VIA: p.lausanneStatus || "",
     VIA_DATE: p.lausanneStatusDate
       ? new Date(p.lausanneStatusDate).toLocaleDateString("fr-CH")
@@ -132,7 +142,10 @@ const UserProfilePage: React.FC = () => {
   // Enfants en droit de visite (mineurs) — PAS comptés pour la base
   const visitingChildrenCount = React.useMemo(() => {
     return (household ?? []).reduce((acc: number, m: any) => {
-      return acc + (isVisitingChildRole(m.role) && yearsDiff(m.birthDate) < 18 ? 1 : 0);
+      return (
+        acc +
+        (isVisitingChildRole(m.role) && yearsDiff(m.birthDate) < 18 ? 1 : 0)
+      );
     }, 0);
   }, [household]);
 
@@ -140,15 +153,20 @@ const UserProfilePage: React.FC = () => {
   const minorsCount = React.useMemo(() => {
     return (household ?? []).reduce((acc: number, m: any) => {
       if (!isCountedChildRole(m.role)) return acc;
-      if (!isPermitValid(m.nationality, m.residencePermit, m.permitExpiryDate)) return acc;
+      if (!isPermitValid(m.nationality, m.residencePermit, m.permitExpiryDate))
+        return acc;
       return acc + (yearsDiff(m.birthDate) < 18 ? 1 : 0);
     }, 0);
   }, [household]);
 
   // Adultes pour distinguer personne seule vs couple (on exclut seulement DV)
-   const adultsCount = React.useMemo(() => {
-   const hasBirth = !!state.userProfile.birthDate;
-   let a = hasBirth ? (yearsDiff(state.userProfile.birthDate) >= 18 ? 1 : 0) : 1;
+  const adultsCount = React.useMemo(() => {
+    const hasBirth = !!state.userProfile.birthDate;
+    let a = hasBirth
+      ? yearsDiff(state.userProfile.birthDate) >= 18
+        ? 1
+        : 0
+      : 1;
     for (const m of household) {
       if (isVisitingChildRole(m.role)) continue;
       if (yearsDiff(m.birthDate) >= 18) a += 1;
@@ -162,10 +180,10 @@ const UserProfilePage: React.FC = () => {
     return n === 0 ? 1 : Math.min(n, 4) + 1;
   }, [minorsCount]);
 
- // Colonne finale = colonne de base (DV n'influe PAS la colonne)
- const finalCol = React.useMemo<BaremeColumn>(() => {
-   return baseCol as BaremeColumn;
- }, [baseCol]);
+  // Colonne finale = colonne de base (DV n'influe PAS la colonne)
+  const finalCol = React.useMemo<BaremeColumn>(() => {
+    return baseCol as BaremeColumn;
+  }, [baseCol]);
 
   // Loyer min (limite barème) d’après le RDU total et la colonne finale
   const minRent = React.useMemo(() => {
@@ -206,7 +224,11 @@ const UserProfilePage: React.FC = () => {
           onCopyAddress={state.copyAddressInfo}
           onAction={() => setAttOpen(true)} // ← ouvre l’attestation
           applicantTo={`/users/${encodeURIComponent(userId ?? "")}`}
-          tenantTo={isSubsidized ? `/tenants/${encodeURIComponent(userId ?? "")}` : undefined}
+          tenantTo={
+            isSubsidized
+              ? `/tenants/${encodeURIComponent(userId ?? "")}`
+              : undefined
+          }
         />
 
         <InteractionBar onClick={state.handleInteractionClick} />
@@ -219,16 +241,56 @@ const UserProfilePage: React.FC = () => {
               size="tight"
               offsetTop={80}
               items={[
-                { id: "section-counters", label: "En bref", icon: QuickNavIcons.menage },
-                { id: "section-dates", label: "Dates", icon: QuickNavIcons.timeline },
-                { id: "section-info", label: "Informations", icon: QuickNavIcons.info },
-                { id: "section-household", label: "Ménage", icon: QuickNavIcons.menage },
-                { id: "section-income", label: "Revenus", icon: QuickNavIcons.revenus },
-                { id: "section-timeline", label: "Interactions", icon: QuickNavIcons.timeline },
-                { id: "section-docs", label: "Documents", icon: QuickNavIcons.docs },
-                { id: "section-proposals", label: "Propositions", icon: QuickNavIcons.props },
-                { id: "section-history", label: "Historique", icon: QuickNavIcons.timeline },
-                { id: "section-session", label: "Séance", icon: QuickNavIcons.timeline },
+                {
+                  id: "section-counters",
+                  label: "En bref",
+                  icon: QuickNavIcons.menage,
+                },
+                {
+                  id: "section-dates",
+                  label: "Dates",
+                  icon: QuickNavIcons.timeline,
+                },
+                {
+                  id: "section-info",
+                  label: "Informations",
+                  icon: QuickNavIcons.info,
+                },
+                {
+                  id: "section-household",
+                  label: "Ménage",
+                  icon: QuickNavIcons.menage,
+                },
+                {
+                  id: "section-income",
+                  label: "Revenus",
+                  icon: QuickNavIcons.revenus,
+                },
+                {
+                  id: "section-timeline",
+                  label: "Interactions",
+                  icon: QuickNavIcons.timeline,
+                },
+                {
+                  id: "section-docs",
+                  label: "Documents",
+                  icon: QuickNavIcons.docs,
+                },
+                {
+                  id: "section-proposals",
+                  label: "Propositions",
+                  icon: QuickNavIcons.props,
+                },
+                {
+                  id: "section-history",
+                  label: "Historique",
+                  icon: QuickNavIcons.timeline,
+                },
+                {
+                  id: "section-session",
+                  label: "Séance",
+                  icon: QuickNavIcons.timeline,
+                },
               ]}
             />
           </div>
@@ -260,9 +322,9 @@ const UserProfilePage: React.FC = () => {
                 maxRooms={state.userProfile.maxRooms}
                 minRent={minRent}
                 /* Comptages pour la pré-sélection (règle ménage) */
-                adultsCount={adultsCount}                 // ← ignoré si DatesCard ne l’utilise pas
+                adultsCount={adultsCount}
                 countedMinors={minorsCount}
-                visitingChildrenCount={visitingChildrenCount} // ← idem
+                visitingChildrenCount={visitingChildrenCount}
                 /* Barème / revenu */
                 baremeColumn={finalCol}
                 rduForBareme={rduTotal}
@@ -315,20 +377,25 @@ const UserProfilePage: React.FC = () => {
                     residencePermit: state.userProfile.residencePermit,
                     permitExpiryDate: state.userProfile.permitExpiryDate,
                   },
-                   ...household.map((m: any) => {
-   const c = canonicalizeRole(m.role);
-   const role = c === "conjoint" ? "conjoint" : c.startsWith("enfant") ? "enfant" : "autre";
-   return {
-     id: m.id,
-     role,                 // rôle “coarse” attendu par IncomeCard (demandeur/conjoint/enfant/autre)
-     rawRole: m.role,      // 👈 on passe le rôle brut pour détecter DV / GA correctement
-     name: m.name,
-     birthDate: m.birthDate,
-     nationality: m.nationality,
-     residencePermit: m.residencePermit,
-     permitExpiryDate: m.permitExpiryDate,
-   };
- }),
+                  ...household.map((m: any) => {
+                    const c = canonicalizeRole(m.role);
+                    const role =
+                      c === "conjoint"
+                        ? "conjoint"
+                        : c.startsWith("enfant")
+                        ? "enfant"
+                        : "autre";
+                    return {
+                      id: m.id,
+                      role, // rôle “coarse” attendu par IncomeCard (demandeur/conjoint/enfant/autre)
+                      rawRole: m.role, // rôle brut pour détecter DV / GA correctement
+                      name: m.name,
+                      birthDate: m.birthDate,
+                      nationality: m.nationality,
+                      residencePermit: m.residencePermit,
+                      permitExpiryDate: m.permitExpiryDate,
+                    };
+                  }),
                 ]}
                 countMode="counted"
                 onTotalsChange={({ totalRDUHousehold }) =>
@@ -360,7 +427,8 @@ const UserProfilePage: React.FC = () => {
             {/* 9) Historique (placeholder) */}
             <section id="section-history">
               <div className="rounded-md border bg-white p-4 text-sm text-slate-600">
-                Historique global — à intégrer (journal/audit spécifique usager).
+                Historique global — à intégrer (journal/audit spécifique
+                usager).
               </div>
             </section>
 
@@ -385,13 +453,62 @@ const UserProfilePage: React.FC = () => {
           .toUpperCase()}.docx`}
       />
 
+      {/* InteractionDialog — publication dans le store Zustand */}
       {state.dialogOpen.type && (
         <InteractionDialog
           isOpen={state.dialogOpen.isOpen}
           onClose={state.handleDialogClose}
-          initialType={state.dialogOpen.type}
+          initialType={state.dialogOpen.type as any}
           onSave={(data) => {
-            console.log("Interaction saved:", data);
+            const addInteraction =
+              useInteractionsStore.getState().addInteraction;
+            const now = new Date().toISOString();
+
+            const normalizeType = (
+              t: any
+            ):
+              | "guichet"
+              | "telephone"
+              | "courrier"
+              | "email"
+              | "jaxform"
+              | "commentaire" => {
+              switch (String(t)) {
+                case "telephone":
+                case "phone":
+                  return "telephone";
+                case "courrier":
+                  return "courrier";
+                case "email":
+                case "mail":
+                  return "email";
+                case "jaxform":
+                  return "jaxform";
+                case "guichet":
+                  return "guichet";
+                case "commentaire":
+                case "comment":
+                case "note":
+                default:
+                  return "commentaire";
+              }
+            };
+
+            addInteraction({
+              type: normalizeType(data.type),
+              subject: data.subject || "",
+              customSubject: data.customSubject || "",
+              comment: (data.comment || "").trim(), // ✅
+              tags: Array.isArray(data.tags) ? data.tags : [], // ✅
+              observations: (data.observations || "").trim(), // ✅
+              isAlert: !!data.isAlert, // ✅
+              commentOptions: data.commentOptions ?? [], // ✅
+              observationTags: data.observationTags ?? [], // ✅
+              createdAt: now,
+              updatedAt: now,
+            });
+
+            state.handleDialogClose();
           }}
         />
       )}

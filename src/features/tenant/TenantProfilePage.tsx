@@ -1,6 +1,7 @@
 // src/features/tenant/TenantProfilePage.tsx
 import React from "react";
 import { useParams } from "react-router-dom";
+
 import HeaderBar from "@/features/user-profile/components/HeaderBar";
 import IncomeCard from "@/features/user-profile/components/IncomeCard/IncomeCard";
 import PersonalInfoCard from "@/features/user-profile/components/PersonalInfoCard";
@@ -14,23 +15,27 @@ import LeaseCompact from "@/features/tenant/components/LeaseCompact";
 import DernierControl, { type ControlEntry } from "@/features/tenant/components/DernierControl";
 import ControlDialog from "@/features/tenant/components/Control/ControlDialog";
 import DecisionForm from "@/features/tenant/components/Control/DecisionForm";
+
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-
-import QuickNavSticky, {
-  QuickNavIcons,
-} from "@/features/user-profile/components/QuickNavSticky/QuickNavSticky";
-
+import QuickNavSticky, { QuickNavIcons } from "@/features/user-profile/components/QuickNavSticky/QuickNavSticky";
 import { useUserProfileState } from "@/features/user-profile/hooks/useUserProfileState";
-import { InteractionDialog } from "@/components/InteractionDialog";
+
+// ⚠️ Import par défaut (pas de { InteractionDialog })
+import InteractionDialog from "@/components/InteractionDialog";
 
 // Types bail (pour l’état local)
 import type { LeaseValue } from "@/features/tenant/components/lease/types";
 
+// Interactions store
+import { useInteractionsStore } from "@/features/interactions/store";
+
 // Immeubles (pour détecter LLM + base)
 import { isAdresseInImmeubles, IMMEUBLES, stripDiacritics } from "@/data/immeubles";
 
-// ─────────────────────────────────────────────────────────
-// helpers (alignés sur la page demandeur)
+/* ─────────────────────────────────────────────────────────
+   Helpers alignés
+────────────────────────────────────────────────────────── */
+
 const normalizeRole = (s?: string) =>
   (s || "")
     .toLowerCase()
@@ -41,10 +46,12 @@ const normalizeRole = (s?: string) =>
 function addressLineFromProfile(p: any): string {
   const direct = p.adresse ?? p.address ?? p.addressLine ?? p.addressLine1 ?? "";
   if (direct && direct.trim()) return direct.trim();
+
   const parts = [
     [p.street, p.streetNumber].filter(Boolean).join(" ").trim(),
     p.addressComplement ?? p.complement ?? "",
   ].filter((x: string) => x && x.trim().length > 0);
+
   return parts.join(" ").trim();
 }
 
@@ -107,7 +114,6 @@ function countAdultsMinorsOccupants(main: any, household: any[]) {
   return { adults, minors };
 }
 
-// Résultat renvoyé par ControlDialog (doit correspondre à sa définition)
 type ControlResult = {
   law: LawKind;
   rooms?: number;
@@ -115,13 +121,16 @@ type ControlResult = {
   minors: number;
   underOcc?: "none" | "simple" | "notoire";
   overOcc?: "none" | "sur";
-  rte?: "unknown" | "none" | "lte20" | "gt20"; // accepte "none" aussi
+  rte?: "unknown" | "none" | "lte20" | "gt20";
   cap?: number;
   percentOverCap?: number;
   notes: string[];
   actions: string[];
 };
-// ─────────────────────────────────────────────────────────
+
+/* ─────────────────────────────────────────────────────────
+   Page
+────────────────────────────────────────────────────────── */
 
 const TenantProfilePage: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
@@ -134,7 +143,10 @@ const TenantProfilePage: React.FC = () => {
     () => (adresseProfil ? isAdresseInImmeubles(adresseProfil) : false),
     [adresseProfil]
   );
-  const base = React.useMemo(() => (adresseProfil ? guessBaseFromImmeubles(adresseProfil) : null), [adresseProfil]);
+  const base = React.useMemo(
+    () => (adresseProfil ? guessBaseFromImmeubles(adresseProfil) : null),
+    [adresseProfil]
+  );
   const law = lawFromBase(base);
 
   // === Adresse → bail : rue + n° extraits depuis les infos perso ===
@@ -179,7 +191,10 @@ const TenantProfilePage: React.FC = () => {
   }, [streetFromProfile, numberFromProfile]);
 
   const handleLeaseChange = (next: LeaseValue) => {
-    if (next.address !== lease.address || String(next.entry ?? "") !== String(lease.entry ?? "")) {
+    if (
+      next.address !== lease.address ||
+      String(next.entry ?? "") !== String(lease.entry ?? "")
+    ) {
       userEditedLeaseAddressRef.current = true;
     }
     setLease(next);
@@ -207,6 +222,33 @@ const TenantProfilePage: React.FC = () => {
   const [controlsHistory, setControlsHistory] = React.useState<ControlEntry[]>([]);
   const [pendingControl, setPendingControl] = React.useState<ControlEntry | null>(null);
 
+  /* ---------------- Interactions: publier depuis la modale ---------------- */
+  const addInteraction = useInteractionsStore((s) => s.addInteraction);
+
+  const normalizeInteractionType = (
+    t: any
+  ): "guichet" | "telephone" | "courrier" | "email" | "jaxform" | "commentaire" => {
+    switch (String(t)) {
+      case "telephone":
+      case "phone":
+        return "telephone";
+      case "courrier":
+        return "courrier";
+      case "email":
+      case "mail":
+        return "email";
+      case "jaxform":
+        return "jaxform";
+      case "guichet":
+        return "guichet";
+      case "commentaire":
+      case "comment":
+      case "note":
+      default:
+        return "commentaire";
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
       <div className="max-w-6xl mx-auto space-y-6">
@@ -220,7 +262,7 @@ const TenantProfilePage: React.FC = () => {
           applicantTo={`/users/${encodeURIComponent(userId ?? "")}`}
         />
 
-        {/* Même pattern que UserProfilePage : InteractionBar sans wrapper, juste après le HeaderBar */}
+        {/* Même pattern que UserProfilePage : InteractionBar sans wrapper */}
         <section id="section-guichet">
           <InteractionBar onClick={state.handleInteractionClick} />
         </section>
@@ -309,11 +351,9 @@ const TenantProfilePage: React.FC = () => {
                   history={controlsHistory}
                   pending={pendingControl}
                   onCopyToHistory={(e) => {
-                    // Ajouter dans l’historique
                     setControlsHistory((prev) => [e, ...prev]);
                   }}
                   onOverwriteLast={(e) => {
-                    // Remplacer le dernier contrôle par le pending
                     setControlsHistory((prev) => {
                       const older = prev.length ? prev.slice(1) : [];
                       return [e, ...older];
@@ -350,7 +390,8 @@ const TenantProfilePage: React.FC = () => {
                   },
                   ...household.map((m: any) => {
                     const r = normalizeRole(m.role);
-                    const role = r === "conjoint" ? "conjoint" : r.startsWith("enfant") ? "enfant" : "autre";
+                    const role =
+                      r === "conjoint" ? "conjoint" : r.startsWith("enfant") ? "enfant" : "autre";
                     return {
                       id: m.id,
                       role,
@@ -442,7 +483,7 @@ const TenantProfilePage: React.FC = () => {
         }}
         onRun={(result) => {
           console.log("Résultat contrôle:", result);
-          setControlSnapshot(result); // pour pré-remplir la décision
+          setControlSnapshot(result);
           setDecisionOpen(true);
 
           // ➜ crée un "pending" condensé pour l’UI DernierControl (remplaçable)
@@ -456,7 +497,6 @@ const TenantProfilePage: React.FC = () => {
               rte: (result.rte ?? "unknown") as any,
               dif: false,
             },
-            // actions: tu pourras mapper la Decision ici plus tard
           };
           setPendingControl(entry);
         }}
@@ -477,7 +517,7 @@ const TenantProfilePage: React.FC = () => {
               rooms={lease?.rooms}
               son={controlSnapshot.underOcc ?? "none"}
               rte={controlSnapshot.rte ?? "unknown"}
-              dif={false} // coche à true si cas DIF dans le dossier
+              dif={false}
               cap={controlSnapshot.cap}
               percentOverCap={controlSnapshot.percentOverCap}
               defaultDates={{
@@ -486,11 +526,6 @@ const TenantProfilePage: React.FC = () => {
               }}
               onSubmit={(decision) => {
                 console.log("Décision enregistrée", decision);
-                // Exemple : si tu veux valider tout de suite le pending dans l’historique
-                // if (pendingControl) {
-                //   setControlsHistory((prev) => [pendingControl, ...prev]);
-                //   setPendingControl(null);
-                // }
                 setDecisionOpen(false);
               }}
               onCancel={() => setDecisionOpen(false)}
@@ -499,13 +534,41 @@ const TenantProfilePage: React.FC = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Modale d'interaction (ouverte via InteractionBar) */}
       {state.dialogOpen.type && (
         <InteractionDialog
           isOpen={state.dialogOpen.isOpen}
           onClose={state.handleDialogClose}
-          initialType={state.dialogOpen.type}
-          onSave={(data) => {
-            console.log("Interaction saved:", data);
+          initialType={state.dialogOpen.type as any}
+          onSave={(data: any) => {
+            // Publication directe dans le store (schema Interaction actuel)
+            const now = new Date().toISOString();
+
+            // Types autorisés par ton Interaction.ts
+            const mappedType = normalizeInteractionType(data.type);
+
+            // ⚠ Interaction.ts actuel n'a pas commentOptions/observationTags
+            // On les passe quand même si ta store les accepte (cast any),
+            // sinon ils seront ignorés sans casser TypeScript côté page.
+            const payload: any = {
+              type: mappedType,
+              subject: data.subject || "",
+              customSubject: data.customSubject || "",
+              comment: (data.comment || "").trim(),
+              tags: Array.isArray(data.tags) ? data.tags : [],
+              observations: (data.observations || "").trim(),
+              isAlert: !!data.isAlert,
+              createdAt: now,
+              updatedAt: now,
+            };
+
+            // Champs optionnels (si le store a été étendu pour les supporter)
+            if (Array.isArray(data.commentOptions)) payload.commentOptions = data.commentOptions;
+            if (Array.isArray(data.observationTags))
+              payload.observationTags = data.observationTags;
+
+            addInteraction(payload as any);
+            state.handleDialogClose();
           }}
         />
       )}

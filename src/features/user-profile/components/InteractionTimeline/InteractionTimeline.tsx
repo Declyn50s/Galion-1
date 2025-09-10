@@ -1,7 +1,20 @@
-import React, { useMemo, useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { ScrollArea } from '@/components/ui/scroll-area'
+import React from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { useParams } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Phone,
   Building2,
@@ -10,129 +23,120 @@ import {
   FileText,
   AlertTriangle,
   RefreshCcw,
-  Paperclip,
   Clock,
-} from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
+  Tag,
+  Pencil,
+  Trash2,
+  MessageSquare,
+} from "lucide-react";
 
-/* ===================== Types ===================== */
-export type InteractionTypeKey =
-  | 'telephone'
-  | 'guichet'
-  | 'courrier'
-  | 'mail'
-  | 'attestation'
-  | 'conformite'
-  | 'relance'
+import InteractionDialog from "@/components/InteractionDialog";
+import { useInteractionsStore } from "@/features/interactions/store";
+import type { Interaction } from "@/types/interaction";
 
-export type InteractionItem = {
-  id: string
-  type: InteractionTypeKey
-  message: string
-  datetime: string // ISO: 2025-08-20T09:30:00
-  agent: string // nom complet ou identifiant
-  attachment?: { name: string; url?: string } | null
-}
+/* Types & UI config */
+type InteractionTypeKey =
+  | "telephone"
+  | "guichet"
+  | "courrier"
+  | "email"
+  | "jaxform"
+  | "commentaire";
 
-type Props = {
-  items?: InteractionItem[]
-  initialVisible?: number // par défaut 3
-  title?: string
-}
-
-/* ===================== Config UI ===================== */
 const TYPE_CONFIG: Record<
   InteractionTypeKey,
   { label: string; color: string; icon: React.ReactNode }
 > = {
-  telephone:   { label: 'Téléphone',   color: 'border-blue-500',   icon: <Phone className="h-4 w-4" /> },
-  guichet:     { label: 'Guichet',     color: 'border-green-600',  icon: <Building2 className="h-4 w-4" /> },
-  courrier:    { label: 'Courrier',    color: 'border-orange-400', icon: <Inbox className="h-4 w-4" /> },
-  mail:        { label: 'Mail',        color: 'border-purple-500', icon: <Mail className="h-4 w-4" /> },
-  attestation: { label: 'Attestation', color: 'border-cyan-600',   icon: <FileText className="h-4 w-4" /> },
-  conformite:  { label: 'Conformité',  color: 'border-red-500',    icon: <AlertTriangle className="h-4 w-4" /> },
-  relance:     { label: 'Relance',     color: 'border-gray-500',   icon: <RefreshCcw className="h-4 w-4" /> },
-}
+  telephone: {
+    label: "Téléphone",
+    color: "border-blue-500",
+    icon: <Phone className="h-4 w-4" />,
+  },
+  guichet: {
+    label: "Guichet",
+    color: "border-green-600",
+    icon: <Building2 className="h-4 w-4" />,
+  },
+  courrier: {
+    label: "Courrier",
+    color: "border-orange-400",
+    icon: <Inbox className="h-4 w-4" />,
+  },
+  email: {
+    label: "E-mail",
+    color: "border-purple-500",
+    icon: <Mail className="h-4 w-4" />,
+  },
+  jaxform: {
+    label: "Jaxform",
+    color: "border-indigo-500",
+    icon: <FileText className="h-4 w-4" />,
+  },
+  commentaire: {
+    label: "Commentaire",
+    color: "border-slate-500",
+    icon: <MessageSquare className="h-4 w-4" />,
+  },
+};
 
-/* ===================== Utils ===================== */
-const formatDDMMYYYY = (iso: string) => {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  const dd = String(d.getDate()).padStart(2, '0')
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const yyyy = d.getFullYear()
-  return `${dd}-${mm}-${yyyy}`
-}
-
-const formatHHMM = (iso: string) => {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  const hh = String(d.getHours()).padStart(2, '0')
-  const mm = String(d.getMinutes()).padStart(2, '0')
-  return `${hh}:${mm}`
-}
-
-const initials3 = (s: string) =>
-  s
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, '')
+/* Utils */
+const formatDate = (iso?: string) => {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("fr-CH");
+};
+const formatTime = (iso?: string) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${String(d.getHours()).padStart(2, "0")}:${String(
+    d.getMinutes()
+  ).padStart(2, "0")}`;
+};
+const initials3 = (s?: string) =>
+  String(s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "")
     .toUpperCase()
-    .slice(0, 3)
+    .slice(0, 3);
 
-/* ===================== Mock (fallback) ===================== */
-const MOCK: InteractionItem[] = [
-  {
-    id: 'i1',
-    type: 'telephone',
-    message: 'Échange téléphonique au sujet des pièces manquantes.',
-    datetime: '2025-08-28T10:45:00',
-    agent: 'Derval',
-    attachment: null,
-  },
-  {
-    id: 'i2',
-    type: 'mail',
-    message: 'Accusé de réception envoyé au demandeur.',
-    datetime: '2025-08-26T16:12:00',
-    agent: 'Sophie Martin',
-    attachment: { name: 'accuse_reception.pdf' },
-  },
-  {
-    id: 'i3',
-    type: 'guichet',
-    message: 'Passage au guichet – dépôt du dossier complet.',
-    datetime: '2025-08-20T09:05:00',
-    agent: 'ADM Lausanne',
-    attachment: null,
-  },
-  {
-    id: 'i4',
-    type: 'attestation',
-    message: 'Attestation délivrée et archivée.',
-    datetime: '2025-08-18T14:22:00',
-    agent: 'ADM Lausanne',
-    attachment: { name: 'attestation_2025.pdf' },
-  },
-  {
-    id: 'i5',
-    type: 'relance',
-    message: 'Relance automatique envoyée (J+7).',
-    datetime: '2025-08-12T08:00:00',
-    agent: 'BOT',
-  },
-]
+/* Composant */
+const InteractionTimeline: React.FC<{ title?: string }> = ({
+  title = "Historique des interactions",
+}) => {
+  const { userId } = useParams<{ userId: string }>();
 
-/* ===================== Composant ===================== */
-const InteractionTimeline: React.FC<Props> = ({ items, initialVisible = 3, title = 'Historique des interactions' }) => {
-  const data = items && items.length ? items : MOCK
+  // Store
+  const interactions = useInteractionsStore(
+    (s) => s.interactions
+  ) as Interaction[];
+  const updateInteraction = useInteractionsStore(
+    (s) => s.updateInteraction
+  ) as (id: string, patch: Partial<Interaction>) => void;
+  const removeInteraction = useInteractionsStore(
+    (s) => s.removeInteraction
+  ) as (id: string) => void;
 
-  const sorted = useMemo(
-    () => [...data].sort((a, b) => new Date(b.datetime).getTime() - new Date(a.datetime).getTime()),
-    [data]
-  )
+  // Filtre user + tri desc (si tu as un champ userId dans tes interactions, ajoute le filtre ici)
+  const items = React.useMemo(() => {
+    const arr = [...(interactions || [])];
+    arr.sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+    return arr;
+  }, [interactions]);
 
-  const [visible, setVisible] = useState(Math.min(initialVisible, sorted.length))
-  const canShowMore = visible < sorted.length
+  // Pagination progressive
+  const [visible, setVisible] = React.useState(Math.min(5, items.length));
+  React.useEffect(() => {
+    setVisible((v) => Math.min(Math.max(v, 5), items.length));
+  }, [items.length]);
+
+  // Édition
+  const [editing, setEditing] = React.useState<Interaction | null>(null);
 
   return (
     <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
@@ -141,15 +145,22 @@ const InteractionTimeline: React.FC<Props> = ({ items, initialVisible = 3, title
       </CardHeader>
 
       <CardContent>
-        <ScrollArea className="h-[420px] pr-2">
+        {/* Pas de ScrollArea Radix -> simple div pour éviter la boucle d’updates */}
+        <div className="max-h-[460px] overflow-auto pr-2">
           <div className="relative">
-            {/* Ligne verticale de la timeline */}
-            <div className="absolute left-3 top-0 bottom-0 w-0.5 bg-slate-200" aria-hidden />
+            <div
+              className="absolute left-3 top-0 bottom-0 w-0.5 bg-slate-200"
+              aria-hidden
+            />
 
             <div className="space-y-3">
               <AnimatePresence initial={false}>
-                {sorted.slice(0, visible).map((it) => {
-                  const cfg = TYPE_CONFIG[it.type]
+                {items.slice(0, visible).map((it) => {
+                  const cfg =
+                    TYPE_CONFIG[it.type] ?? TYPE_CONFIG["commentaire"];
+                  const alertish =
+                    it.isAlert || (it.observationTags || []).includes("Refus");
+
                   return (
                     <motion.article
                       key={it.id}
@@ -158,79 +169,256 @@ const InteractionTimeline: React.FC<Props> = ({ items, initialVisible = 3, title
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0 }}
                       className="relative pl-8"
-                      aria-label={`${cfg.label} du ${formatDDMMYYYY(it.datetime)} à ${formatHHMM(it.datetime)}`}
                     >
-                      {/* Point sur la ligne */}
+                      {/* Point timeline */}
                       <span
                         className="absolute left-[9px] top-2 h-3 w-3 rounded-full bg-white ring-2 ring-slate-300"
                         aria-hidden
                       />
 
-                      <div className={`rounded-lg border bg-white ${cfg.color} border-l-4`}>
+                      <div
+                        className={`rounded-lg border bg-white ${
+                          cfg.color
+                        } border-l-4 ${alertish ? "ring-1 ring-red-200" : ""}`}
+                      >
                         <div className="flex items-start gap-3 p-3">
-                          <div className="mt-0.5 shrink-0 text-slate-600">{cfg.icon}</div>
+                          <div className="mt-0.5 shrink-0 text-slate-600">
+                            {cfg.icon}
+                          </div>
 
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-                              <span className="font-medium text-slate-700">{cfg.label}</span>
+                              <span className="font-medium text-slate-700">
+                                {cfg.label}
+                              </span>
+                              {it.subject ? (
+                                <>
+                                  <span>•</span>
+                                  <span className="text-slate-700">
+                                    {it.subject}
+                                  </span>
+                                </>
+                              ) : null}
                               <span className="inline-flex items-center gap-1">
                                 <Clock className="h-3.5 w-3.5" />
-                                {formatDDMMYYYY(it.datetime)} — {formatHHMM(it.datetime)}
+                                {formatDate(it.createdAt)} —{" "}
+                                {formatTime(it.createdAt)}
                               </span>
-                              {it.attachment ? (
-                                <span className="inline-flex items-center gap-1">
-                                  <Paperclip className="h-3.5 w-3.5" />
-                                  {it.attachment.url ? (
-                                    <a
-                                      href={it.attachment.url}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="underline hover:no-underline"
-                                      title="Ouvrir la pièce jointe"
-                                    >
-                                      {it.attachment.name}
-                                    </a>
-                                  ) : (
-                                    <span className="text-slate-600">{it.attachment.name}</span>
-                                  )}
-                                </span>
+                              {alertish ? (
+                                <Badge variant="destructive" className="ml-1">
+                                  Alerte
+                                </Badge>
                               ) : null}
                             </div>
 
-                            <p className="mt-1 text-sm text-slate-800 break-words">
-                              {it.message}
-                            </p>
+                            {/* Commentaire */}
+                            {it.comment && (
+                              <p className="mt-2 text-sm text-slate-900 whitespace-pre-wrap break-words">
+                                {it.comment}
+                              </p>
+                            )}
+
+                            {/* Observations */}
+                            {it.observations && (
+                              <>
+                                <Separator className="my-2" />
+                                <div className="text-xs text-slate-600">
+                                  <span className="font-medium text-slate-700">
+                                    Observation
+                                  </span>
+                                  <p className="mt-1 text-sm text-slate-800 whitespace-pre-wrap break-words">
+                                    {it.observations}
+                                  </p>
+                                </div>
+                              </>
+                            )}
+
+                            {/* Tags + Options + ObsTags */}
+                            {it.tags?.length ||
+                            it.commentOptions?.length ||
+                            it.observationTags?.length ? (
+                              <>
+                                <Separator className="my-2" />
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {/* Collaborateurs */}
+                                  {it.tags?.length ? (
+                                    <>
+                                      <span className="inline-flex items-center gap-1 text-xs text-slate-600">
+                                        <Tag className="h-3.5 w-3.5" />
+                                        Collaborateurs
+                                      </span>
+                                      {it.tags.map((t) => (
+                                        <Badge
+                                          key={`c-${t}`}
+                                          variant="secondary"
+                                        >
+                                          {t}
+                                        </Badge>
+                                      ))}
+                                    </>
+                                  ) : null}
+
+                                  {/* Options de commentaire */}
+                                  {it.commentOptions?.length ? (
+                                    <>
+                                      <span className="ml-3 inline-flex items-center gap-1 text-xs text-slate-600">
+                                        <Tag className="h-3.5 w-3.5" />
+                                        Options
+                                      </span>
+                                      {it.commentOptions.map((t) => (
+                                        <Badge
+                                          key={`o-${t}`}
+                                          variant="outline"
+                                          className="border-dashed"
+                                        >
+                                          {t}
+                                        </Badge>
+                                      ))}
+                                    </>
+                                  ) : null}
+
+                                  {/* Tags d’observation */}
+                                  {it.observationTags?.length ? (
+                                    <>
+                                      <span className="ml-3 inline-flex items-center gap-1 text-xs text-slate-600">
+                                        <Tag className="h-3.5 w-3.5" />
+                                        Observations
+                                      </span>
+                                      {it.observationTags.map((t) => (
+                                        <Badge
+                                          key={`ot-${t}`}
+                                          variant={
+                                            t === "Refus"
+                                              ? "destructive"
+                                              : "secondary"
+                                          }
+                                        >
+                                          {t}
+                                        </Badge>
+                                      ))}
+                                    </>
+                                  ) : null}
+                                </div>
+                              </>
+                            ) : null}
                           </div>
 
-                          {/* Initiales agent (3 lettres) */}
-                          <div
-                            className="ml-auto rounded-md bg-slate-100 text-slate-700 text-xs font-semibold px-2 py-1 select-none"
-                            aria-label={`Agent ${initials3(it.agent)}`}
-                            title={it.agent}
-                          >
-                            {initials3(it.agent)}
+                          {/* Actions */}
+                          <div className="ml-auto flex flex-col items-end gap-2">
+                            <div
+                              className="rounded-md bg-slate-100 text-slate-700 text-xs font-semibold px-2 py-1 select-none"
+                              title="Agent"
+                            >
+                              {initials3("DBO")}
+                            </div>
+
+                            <div className="flex gap-1">
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => setEditing(it)}
+                                title="Modifier"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-8 w-8 text-red-600 hover:text-red-700"
+                                    title="Supprimer"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>
+                                      Supprimer l’interaction ?
+                                    </AlertDialogTitle>
+                                  </AlertDialogHeader>
+                                  <p className="text-sm text-slate-600">
+                                    Cette action est irréversible.
+                                  </p>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>
+                                      Annuler
+                                    </AlertDialogCancel>
+                                    <AlertDialogAction
+                                      className="bg-red-600 hover:bg-red-700"
+                                      onClick={() => removeInteraction(it.id)}
+                                    >
+                                      Supprimer
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </div>
                           </div>
                         </div>
                       </div>
                     </motion.article>
-                  )
+                  );
                 })}
               </AnimatePresence>
             </div>
           </div>
-        </ScrollArea>
+        </div>
 
         {/* Voir plus */}
-        {canShowMore && (
+        {visible < items.length && (
           <div className="mt-3 flex justify-center">
-            <Button variant="outline" onClick={() => setVisible((v) => Math.min(v + 3, sorted.length))}>
+            <Button
+              variant="outline"
+              onClick={() => setVisible((v) => Math.min(v + 5, items.length))}
+            >
               Voir plus
             </Button>
           </div>
         )}
       </CardContent>
-    </Card>
-  )
-}
 
-export default InteractionTimeline
+      {/* Modale édition */}
+      {editing && (
+        <InteractionDialog
+          isOpen={true}
+          onClose={() => setEditing(null)}
+          initialType={editing.type}
+          initialValues={{
+            type: editing.type,
+            subject: editing.subject,
+            customSubject: editing.customSubject,
+            comment: editing.comment,
+            tags: editing.tags,
+            observations: editing.observations,
+            isAlert: editing.isAlert,
+            commentOptions: editing.commentOptions ?? [],
+            observationTags: editing.observationTags ?? [],
+          }}
+          submitLabel="Enregistrer"
+          title="Modifier l’interaction"
+          onSave={(payload) => {
+            updateInteraction(editing.id, {
+              type: payload.type,
+              subject: payload.subject,
+              customSubject: payload.customSubject,
+              comment: payload.comment,
+              tags: payload.tags,
+              observations: payload.observations,
+              isAlert: payload.isAlert,
+              commentOptions: payload.commentOptions ?? [],
+              observationTags: payload.observationTags ?? [],
+              updatedAt: new Date().toISOString(),
+            });
+            setEditing(null);
+          }}
+        />
+      )}
+    </Card>
+  );
+};
+
+export default InteractionTimeline;
