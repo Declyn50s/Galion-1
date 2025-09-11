@@ -818,10 +818,6 @@ export default function IncomeCard({
               patchBlock={patchBlock}
               clearBlock={clearBlock}
             />
-
-            <p className="text-[11px] text-slate-500">
-              * AIL est traité comme une <b>déduction</b> dans le RDU (soustraction).
-            </p>
           </CardContent>
         </Card>
       ))}

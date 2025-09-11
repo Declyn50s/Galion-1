@@ -22,18 +22,29 @@ import NationalitySelector from "@/components/NationalitySelector";
 import PermitExpiryField from "@/features/user-profile/components/PersonalInfoCard/PermitExpiryField";
 
 // ✅ util commun rôles
-import {
-  canonicalizeRole,
-  toDisplayRole,
-  ROLE_OPTIONS,
-  normalize as norm,
-} from "@/lib/roles";
+import { canonicalizeRole, ROLE_OPTIONS } from "@/lib/roles";
 
 // ───────────────────────────────────────────────────────────
 const isSpouse = (role?: string) => canonicalizeRole(role) === "conjoint";
 
+// Âge helpers
+const toDate = (s?: string) => {
+  if (!s) return undefined;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+};
+const yearsDiff = (iso?: string) => {
+  const d = toDate(iso);
+  if (!d) return 0;
+  const today = new Date();
+  let age = today.getFullYear() - d.getFullYear();
+  const md = today.getMonth() - d.getMonth();
+  if (md < 0 || (md === 0 && today.getDate() < d.getDate())) age--;
+  return age;
+};
+
 // Rôles canoniques pour le sélecteur rapide
-type CanonicalRole = typeof ROLE_OPTIONS[number]["value"];
+type CanonicalRole = (typeof ROLE_OPTIONS)[number]["value"];
 
 // ───────────────────────────────────────────────────────────
 
@@ -68,8 +79,8 @@ const HouseholdCard: React.FC<Props> = ({
   const [status, setStatus] = useState("");
 
   const hasSpouse = useMemo(
-   () => household.some((h) => canonicalizeRole(h.role) === "conjoint"),
-  [household]
+    () => household.some((h) => canonicalizeRole(h.role) === "conjoint"),
+    [household]
   );
 
   const resetFields = () => {
@@ -113,22 +124,6 @@ const HouseholdCard: React.FC<Props> = ({
     }
   };
 
-  // Âge
-const toDate = (s?: string) => {
-  if (!s) return undefined;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? undefined : d;
-};
-const yearsDiff = (iso?: string) => {
-  const d = toDate(iso);
-  if (!d) return 0;
-  const today = new Date();
-  let age = today.getFullYear() - d.getFullYear();
-  const md = today.getMonth() - d.getMonth();
-  if (md < 0 || (md === 0 && today.getDate() < d.getDate())) age--;
-  return age;
-};
-
   // Nationalité : Suisse => pas de permis
   const handleNationalityChange = (val: string) => {
     setNationality(val);
@@ -167,15 +162,16 @@ const yearsDiff = (iso?: string) => {
       });
       return;
     }
-     // Conjoint doit être majeur (≥18)
-  if (isSpouse(roleCanonical) && yearsDiff(birthDate) < 18) {
-    toast({
-      variant: "destructive",
-      title: "Conjoint invalide",
-      description: "Le conjoint doit être majeur (≥ 18 ans).",
-    });
-    return;
-  }
+
+    // Conjoint doit être majeur
+    if (isSpouse(roleCanonical) && yearsDiff(birthDate) < 18) {
+      toast({
+        variant: "destructive",
+        title: "Conjoint invalide",
+        description: "Le conjoint doit être majeur (≥ 18 ans).",
+      });
+      return;
+    }
 
     // Si non-Suisse et permis B/F → exiger une échéance
     const needsExpiry =
@@ -309,9 +305,12 @@ const yearsDiff = (iso?: string) => {
                         key={opt.value}
                         value={opt.value}
                         disabled={
-        (hasSpouse && canonicalizeRole(opt.value) === "conjoint") ||
-        (canonicalizeRole(opt.value) === "conjoint" && birthDate && yearsDiff(birthDate) < 18)
-       }
+                          (hasSpouse &&
+                            canonicalizeRole(opt.value) === "conjoint") ||
+                          (canonicalizeRole(opt.value) === "conjoint" &&
+                            birthDate &&
+                            yearsDiff(birthDate) < 18)
+                        }
                       >
                         {opt.label}
                       </SelectItem>
@@ -447,32 +446,33 @@ const yearsDiff = (iso?: string) => {
               const canonical = canonicalizeRole(m.role);
               return (
                 <HouseholdMemberRow
-  key={m.id}
-  member={{ ...m, role: canonicalizeRole(m.role) }}
-  onRemove={() => onRemove(m.id)}
-  onSwap={() => onSwap(m)}
-  onUpdate={
-    onUpdate
-      ? (patch) => {
-          const p = { ...patch } as Partial<HouseholdMember>;
-          if (p.role) {
-            const nextRole = canonicalizeRole(p.role);
-           // Interdit "conjoint" si la personne est mineure
-           if (nextRole === "conjoint" && yearsDiff(m.birthDate) < 18) {
-             toast({
-               variant: "destructive",
-               title: "Conjoint invalide",
-               description: "Le conjoint doit être majeur (≥ 18 ans).",
-             });
-             return; // on bloque la mise à jour
-           }
-            p.role = nextRole;
-          }
-          onUpdate(m.id, p);
-        }
-      : undefined
-  }
-/>
+                  key={m.id}
+                  member={{ ...m, role: canonical }}
+                  onRemove={() => onRemove(m.id)}
+                  onSwap={() => onSwap(m)}
+                  // ✅ patch générique (dont rôle, toujours canonique)
+                  onUpdate={
+                    onUpdate
+                      ? (patch) => {
+                          const p = { ...patch } as Partial<HouseholdMember>;
+                          if (p.role) {
+                            const nextRole = canonicalizeRole(p.role);
+                            // Interdit "conjoint" si la personne est mineure
+                            if (nextRole === "conjoint" && yearsDiff(m.birthDate) < 18) {
+                              toast({
+                                variant: "destructive",
+                                title: "Conjoint invalide",
+                                description: "Le conjoint doit être majeur (≥ 18 ans).",
+                              });
+                              return;
+                            }
+                            p.role = nextRole;
+                          }
+                          onUpdate(m.id, p);
+                        }
+                      : undefined
+                  }
+                />
               );
             })}
           </div>

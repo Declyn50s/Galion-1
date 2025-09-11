@@ -18,7 +18,7 @@ export default function QuickTagGrid({
     { key: "allocationFamiliale", label: "Allocation familiale" },
     { key: "fortune", label: "Fortune" },
     { key: "ovam", label: "OVAM" },
-    { key: "ail", label: "AIL (déduction)" }, // 🔻
+    { key: "lhps", label: "Déduction maladie LHPS" }, // 🔻
     { key: "brapa", label: "BRAPA" },
   ]
 

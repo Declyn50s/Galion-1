@@ -24,6 +24,23 @@ import type { HouseholdMember } from "@/types/user";
 
 // ✅ util commun rôles
 import { canonicalizeRole, toDisplayRole, ROLE_OPTIONS } from "@/lib/roles";
+import { useToast } from "@/hooks/use-toast";
+
+// Helpers âge (local)
+const toDate = (s?: string) => {
+  if (!s) return undefined;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+};
+const yearsDiff = (iso?: string) => {
+  const d = toDate(iso);
+  if (!d) return 0;
+  const today = new Date();
+  let age = today.getFullYear() - d.getFullYear();
+  const md = today.getMonth() - d.getMonth();
+  if (md < 0 || (md === 0 && today.getDate() < d.getDate())) age--;
+  return age;
+};
 
 interface Props {
   member: HouseholdMember;
@@ -39,6 +56,8 @@ const HouseholdMemberRow: React.FC<Props> = ({
   onRemove,
   onUpdate,
 }) => {
+  const { toast } = useToast();
+
   const bg =
     member.gender === "Masculin"
       ? "bg-blue-50 dark:bg-blue-900/20"
@@ -49,8 +68,11 @@ const HouseholdMemberRow: React.FC<Props> = ({
   const [first, ...lastParts] = (member.name || "").trim().split(" ");
   const last = lastParts.join(" ");
 
-  // `member.role` est un libellé d’affichage → déduire la valeur canonique pour le Select
+  // `member.role` peut déjà être canonique : on recanonicalise pour sécurité
   const currentCanonical = canonicalizeRole(member.role);
+
+  const age = yearsDiff(member.birthDate);
+  const isMinorOrUnknownDOB = !member.birthDate || age < 18;
 
   return (
     <div
@@ -73,23 +95,41 @@ const HouseholdMemberRow: React.FC<Props> = ({
               {onUpdate ? (
                 <Select
                   value={currentCanonical}
-                  onValueChange={(v) =>
-                    onUpdate({ role: canonicalizeRole(v) }) // ← **toujours canonique**
-                  }
+                  onValueChange={(v) => {
+                    const next = canonicalizeRole(v);
+                    // ❌ Interdit de passer "conjoint" si mineur ou date inconnue
+                    if (next === "conjoint" && isMinorOrUnknownDOB) {
+                      toast({
+                        variant: "destructive",
+                        title: "Conjoint invalide",
+                        description:
+                          "Le conjoint doit être majeur (≥ 18 ans) et la date de naissance doit être renseignée.",
+                      });
+                      return;
+                    }
+                    onUpdate({ role: next }); // ← **toujours canonique**
+                  }}
                 >
                   <SelectTrigger className="h-8 w-[220px] text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {ROLE_OPTIONS.map((r) => (
-                      <SelectItem key={r.value} value={r.value}>
-                        {r.label}
-                      </SelectItem>
-                    ))}
+                    {ROLE_OPTIONS.map((r) => {
+                      const val = canonicalizeRole(r.value);
+                      const disabled =
+                        val === "conjoint" && isMinorOrUnknownDOB;
+                      return (
+                        <SelectItem key={r.value} value={r.value} disabled={disabled}>
+                          {r.label}
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
               ) : (
-                <span className="font-medium">{toDisplayRole(currentCanonical)}</span>
+                <span className="font-medium">
+                  {toDisplayRole(currentCanonical)}
+                </span>
               )}
             </div>
 

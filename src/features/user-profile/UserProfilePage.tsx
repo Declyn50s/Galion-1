@@ -235,66 +235,6 @@ const UserProfilePage: React.FC = () => {
 
         {/* ====== Layout avec sidebar sticky ====== */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Sticky nav à gauche */}
-          <div className="hidden lg:block lg:col-span-3">
-            <QuickNavSticky
-              size="tight"
-              offsetTop={80}
-              items={[
-                {
-                  id: "section-counters",
-                  label: "En bref",
-                  icon: QuickNavIcons.menage,
-                },
-                {
-                  id: "section-dates",
-                  label: "Dates",
-                  icon: QuickNavIcons.timeline,
-                },
-                {
-                  id: "section-info",
-                  label: "Informations",
-                  icon: QuickNavIcons.info,
-                },
-                {
-                  id: "section-household",
-                  label: "Ménage",
-                  icon: QuickNavIcons.menage,
-                },
-                {
-                  id: "section-income",
-                  label: "Revenus",
-                  icon: QuickNavIcons.revenus,
-                },
-                {
-                  id: "section-timeline",
-                  label: "Interactions",
-                  icon: QuickNavIcons.timeline,
-                },
-                {
-                  id: "section-docs",
-                  label: "Documents",
-                  icon: QuickNavIcons.docs,
-                },
-                {
-                  id: "section-proposals",
-                  label: "Propositions",
-                  icon: QuickNavIcons.props,
-                },
-                {
-                  id: "section-history",
-                  label: "Historique",
-                  icon: QuickNavIcons.timeline,
-                },
-                {
-                  id: "section-session",
-                  label: "Séance",
-                  icon: QuickNavIcons.timeline,
-                },
-              ]}
-            />
-          </div>
-
           {/* Contenu principal */}
           <div className="lg:col-span-9 space-y-6">
             {/* 1) 👪 Ménage (compteurs) */}
@@ -439,6 +379,65 @@ const UserProfilePage: React.FC = () => {
               </div>
             </section>
           </div>
+          {/* Sticky nav à gauche */}
+          <div className="hidden lg:block lg:col-span-3">
+            <QuickNavSticky
+              size="tight"
+              offsetTop={80}
+              items={[
+                {
+                  id: "section-counters",
+                  label: "En bref",
+                  icon: QuickNavIcons.menage,
+                },
+                {
+                  id: "section-dates",
+                  label: "Dates",
+                  icon: QuickNavIcons.timeline,
+                },
+                {
+                  id: "section-info",
+                  label: "Informations",
+                  icon: QuickNavIcons.info,
+                },
+                {
+                  id: "section-household",
+                  label: "Ménage",
+                  icon: QuickNavIcons.menage,
+                },
+                {
+                  id: "section-income",
+                  label: "Revenus",
+                  icon: QuickNavIcons.revenus,
+                },
+                {
+                  id: "section-timeline",
+                  label: "Interactions",
+                  icon: QuickNavIcons.timeline,
+                },
+                {
+                  id: "section-docs",
+                  label: "Documents",
+                  icon: QuickNavIcons.docs,
+                },
+                {
+                  id: "section-proposals",
+                  label: "Propositions",
+                  icon: QuickNavIcons.props,
+                },
+                {
+                  id: "section-history",
+                  label: "Historique",
+                  icon: QuickNavIcons.timeline,
+                },
+                {
+                  id: "section-session",
+                  label: "Séance",
+                  icon: QuickNavIcons.timeline,
+                },
+              ]}
+            />
+          </div>
         </div>
       </div>
 
@@ -495,18 +494,21 @@ const UserProfilePage: React.FC = () => {
             };
 
             addInteraction({
-              type: normalizeType(data.type),
-              subject: data.subject || "",
-              customSubject: data.customSubject || "",
-              comment: (data.comment || "").trim(), // ✅
-              tags: Array.isArray(data.tags) ? data.tags : [], // ✅
-              observations: (data.observations || "").trim(), // ✅
-              isAlert: !!data.isAlert, // ✅
-              commentOptions: data.commentOptions ?? [], // ✅
-              observationTags: data.observationTags ?? [], // ✅
-              createdAt: now,
-              updatedAt: now,
-            });
+      userId: userId ?? "",                 // 👈 rattaché à l’usager courant
+      id: crypto.randomUUID(),
+      type: data.type ?? "commentaire",     // mappé à ton enum actuel
+      subject: data.subject || "",
+      customSubject: data.customSubject || "",
+      comment: (data.comment || data.message || data.meta?.comment || "").trim(),
+      tags: Array.isArray(data.tags) ? data.tags : [],
+      observations: (data.observations || data.meta?.observations || "").trim(),
+      isAlert: !!data.isAlert,
+      // optionnels si tu veux afficher les cases cochées dans la timeline
+      commentOptions: Array.isArray(data.commentOptions) ? data.commentOptions : [],
+      observationTags: Array.isArray(data.observationTags) ? data.observationTags : [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
 
             state.handleDialogClose();
           }}

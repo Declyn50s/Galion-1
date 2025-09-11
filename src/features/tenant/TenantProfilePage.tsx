@@ -12,12 +12,21 @@ import InteractionTimeline from "@/features/user-profile/components/InteractionT
 import InteractionBar from "@/features/user-profile/components/InteractionBar";
 
 import LeaseCompact from "@/features/tenant/components/LeaseCompact";
-import DernierControl, { type ControlEntry } from "@/features/tenant/components/DernierControl";
+import DernierControl, {
+  type ControlEntry,
+} from "@/features/tenant/components/DernierControl";
 import ControlDialog from "@/features/tenant/components/Control/ControlDialog";
 import DecisionForm from "@/features/tenant/components/Control/DecisionForm";
 
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import QuickNavSticky, { QuickNavIcons } from "@/features/user-profile/components/QuickNavSticky/QuickNavSticky";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import QuickNavSticky, {
+  QuickNavIcons,
+} from "@/features/user-profile/components/QuickNavSticky/QuickNavSticky";
 import { useUserProfileState } from "@/features/user-profile/hooks/useUserProfileState";
 
 // ⚠️ Import par défaut (pas de { InteractionDialog })
@@ -30,7 +39,11 @@ import type { LeaseValue } from "@/features/tenant/components/lease/types";
 import { useInteractionsStore } from "@/features/interactions/store";
 
 // Immeubles (pour détecter LLM + base)
-import { isAdresseInImmeubles, IMMEUBLES, stripDiacritics } from "@/data/immeubles";
+import {
+  isAdresseInImmeubles,
+  IMMEUBLES,
+  stripDiacritics,
+} from "@/data/immeubles";
 
 /* ─────────────────────────────────────────────────────────
    Helpers alignés
@@ -44,7 +57,8 @@ const normalizeRole = (s?: string) =>
     .trim();
 
 function addressLineFromProfile(p: any): string {
-  const direct = p.adresse ?? p.address ?? p.addressLine ?? p.addressLine1 ?? "";
+  const direct =
+    p.adresse ?? p.address ?? p.addressLine ?? p.addressLine1 ?? "";
   if (direct && direct.trim()) return direct.trim();
 
   const parts = [
@@ -92,7 +106,8 @@ function countAdultsMinorsOccupants(main: any, household: any[]) {
   const ALL = [{ ...main, role: "demandeur" }, ...(household ?? [])];
 
   const isVisitingChild = (role?: string) =>
-    /^enfant\b/.test(normalizeRole(role)) && /\bvisite\b/.test(normalizeRole(role));
+    /^enfant\b/.test(normalizeRole(role)) &&
+    /\bvisite\b/.test(normalizeRole(role));
 
   let adults = 0;
   let minors = 0;
@@ -104,7 +119,8 @@ function countAdultsMinorsOccupants(main: any, household: any[]) {
         ? new Date().getFullYear() -
           dob.getFullYear() -
           (new Date().getMonth() < dob.getMonth() ||
-          (new Date().getMonth() === dob.getMonth() && new Date().getDate() < dob.getDate())
+          (new Date().getMonth() === dob.getMonth() &&
+            new Date().getDate() < dob.getDate())
             ? 1
             : 0)
         : 99;
@@ -160,10 +176,11 @@ const TenantProfilePage: React.FC = () => {
     return { street, number };
   }, []);
 
-  const { street: streetFromProfile, number: numberFromProfile } = React.useMemo(
-    () => splitStreetAndNumber(adresseProfil),
-    [adresseProfil, splitStreetAndNumber]
-  );
+  const { street: streetFromProfile, number: numberFromProfile } =
+    React.useMemo(
+      () => splitStreetAndNumber(adresseProfil),
+      [adresseProfil, splitStreetAndNumber]
+    );
 
   // État local du bail (éditable)
   const initialLease = React.useMemo<LeaseValue>(
@@ -216,18 +233,28 @@ const TenantProfilePage: React.FC = () => {
 
   // Modale Décision (après contrôle)
   const [decisionOpen, setDecisionOpen] = React.useState(false);
-  const [controlSnapshot, setControlSnapshot] = React.useState<ControlResult | null>(null);
+  const [controlSnapshot, setControlSnapshot] =
+    React.useState<ControlResult | null>(null);
 
   // Historique + pending
-  const [controlsHistory, setControlsHistory] = React.useState<ControlEntry[]>([]);
-  const [pendingControl, setPendingControl] = React.useState<ControlEntry | null>(null);
+  const [controlsHistory, setControlsHistory] = React.useState<ControlEntry[]>(
+    []
+  );
+  const [pendingControl, setPendingControl] =
+    React.useState<ControlEntry | null>(null);
 
   /* ---------------- Interactions: publier depuis la modale ---------------- */
   const addInteraction = useInteractionsStore((s) => s.addInteraction);
 
   const normalizeInteractionType = (
     t: any
-  ): "guichet" | "telephone" | "courrier" | "email" | "jaxform" | "commentaire" => {
+  ):
+    | "guichet"
+    | "telephone"
+    | "courrier"
+    | "email"
+    | "jaxform"
+    | "commentaire" => {
     switch (String(t)) {
       case "telephone":
       case "phone":
@@ -269,29 +296,6 @@ const TenantProfilePage: React.FC = () => {
 
         {/* ====== Layout avec sidebar sticky ====== */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Sticky nav à gauche */}
-          <div className="hidden lg:block lg:col-span-3">
-            <QuickNavSticky
-              size="tight"
-              offsetTop={80}
-              items={[
-                { id: "section-household-info", label: "En bref", icon: QuickNavIcons.menage },
-                { id: "section-info", label: "Informations", icon: QuickNavIcons.info },
-                { id: "section-household-manage", label: "Ménage", icon: QuickNavIcons.menage },
-                { id: "section-interactions", label: "Interactions", icon: QuickNavIcons.timeline },
-                { id: "section-lastcheck", label: "Dernier contrôle", icon: QuickNavIcons.timeline },
-                { id: "section-lease", label: "Bail", icon: QuickNavIcons.docs },
-                { id: "section-income", label: "Revenu", icon: QuickNavIcons.revenus },
-                { id: "section-docs", label: "Documents", icon: QuickNavIcons.docs },
-                { id: "section-supplement", label: "Supplément loyer", icon: QuickNavIcons.props },
-                { id: "section-suppression", label: "Suppression des aides", icon: QuickNavIcons.props },
-                { id: "section-echeancier", label: "Échéancier cellules logement", icon: QuickNavIcons.timeline },
-                { id: "section-history", label: "Historique", icon: QuickNavIcons.timeline },
-                { id: "section-session", label: "Séances", icon: QuickNavIcons.timeline },
-              ]}
-            />
-          </div>
-
           {/* Contenu principal */}
           <div className="lg:col-span-9 space-y-6">
             {/* 1) 👪 Ménage (compteurs) */}
@@ -370,7 +374,9 @@ const TenantProfilePage: React.FC = () => {
                 value={lease}
                 onChange={handleLeaseChange}
                 onModifyDates={() => console.log("Modifier dates bail")}
-                onModifyRent={() => console.log("Modifier loyer / montant bail")}
+                onModifyRent={() =>
+                  console.log("Modifier loyer / montant bail")
+                }
                 onTerminateLease={() => console.log("Résiliation du bail")}
               />
             </section>
@@ -391,7 +397,11 @@ const TenantProfilePage: React.FC = () => {
                   ...household.map((m: any) => {
                     const r = normalizeRole(m.role);
                     const role =
-                      r === "conjoint" ? "conjoint" : r.startsWith("enfant") ? "enfant" : "autre";
+                      r === "conjoint"
+                        ? "conjoint"
+                        : r.startsWith("enfant")
+                        ? "enfant"
+                        : "autre";
                     return {
                       id: m.id,
                       role,
@@ -404,7 +414,9 @@ const TenantProfilePage: React.FC = () => {
                   }),
                 ]}
                 countMode="counted"
-                onTotalsChange={({ totalRDUHousehold }) => setRduTotal(totalRDUHousehold)}
+                onTotalsChange={({ totalRDUHousehold }) =>
+                  setRduTotal(totalRDUHousehold)
+                }
                 tenantContext={{
                   enabled: true,
                   rentNetMonthly: lease?.rentNetMonthly ?? undefined, // loyer bail
@@ -427,7 +439,8 @@ const TenantProfilePage: React.FC = () => {
             {/* 10) Suppression des aides (placeholder) */}
             <section id="section-suppression">
               <div className="rounded-md border bg-white p-4 text-sm text-slate-600">
-                Suppression des aides — à intégrer (motifs, dates, notifications).
+                Suppression des aides — à intégrer (motifs, dates,
+                notifications).
               </div>
             </section>
 
@@ -448,9 +461,84 @@ const TenantProfilePage: React.FC = () => {
             {/* 13) Séances */}
             <section id="section-session">
               <div className="rounded-md border bg-white p-4 text-sm text-slate-600">
-                Séances — à intégrer (réunions, décisions liées au dossier locataire).
+                Séances — à intégrer (réunions, décisions liées au dossier
+                locataire).
               </div>
             </section>
+          </div>
+          {/* Sticky nav à gauche */}
+          <div className="hidden lg:block lg:col-span-3">
+            <QuickNavSticky
+              size="tight"
+              offsetTop={80}
+              items={[
+                {
+                  id: "section-household-info",
+                  label: "En bref",
+                  icon: QuickNavIcons.menage,
+                },
+                {
+                  id: "section-info",
+                  label: "Informations",
+                  icon: QuickNavIcons.info,
+                },
+                {
+                  id: "section-household-manage",
+                  label: "Ménage",
+                  icon: QuickNavIcons.menage,
+                },
+                {
+                  id: "section-interactions",
+                  label: "Interactions",
+                  icon: QuickNavIcons.timeline,
+                },
+                {
+                  id: "section-lastcheck",
+                  label: "Dernier contrôle",
+                  icon: QuickNavIcons.timeline,
+                },
+                {
+                  id: "section-lease",
+                  label: "Bail",
+                  icon: QuickNavIcons.docs,
+                },
+                {
+                  id: "section-income",
+                  label: "Revenu",
+                  icon: QuickNavIcons.revenus,
+                },
+                {
+                  id: "section-docs",
+                  label: "Documents",
+                  icon: QuickNavIcons.docs,
+                },
+                {
+                  id: "section-supplement",
+                  label: "Supplément loyer",
+                  icon: QuickNavIcons.props,
+                },
+                {
+                  id: "section-suppression",
+                  label: "Suppression des aides",
+                  icon: QuickNavIcons.props,
+                },
+                {
+                  id: "section-echeancier",
+                  label: "Échéancier cellules logement",
+                  icon: QuickNavIcons.timeline,
+                },
+                {
+                  id: "section-history",
+                  label: "Historique",
+                  icon: QuickNavIcons.timeline,
+                },
+                {
+                  id: "section-session",
+                  label: "Séances",
+                  icon: QuickNavIcons.timeline,
+                },
+              ]}
+            />
           </div>
         </div>
       </div>
@@ -563,7 +651,8 @@ const TenantProfilePage: React.FC = () => {
             };
 
             // Champs optionnels (si le store a été étendu pour les supporter)
-            if (Array.isArray(data.commentOptions)) payload.commentOptions = data.commentOptions;
+            if (Array.isArray(data.commentOptions))
+              payload.commentOptions = data.commentOptions;
             if (Array.isArray(data.observationTags))
               payload.observationTags = data.observationTags;
 
