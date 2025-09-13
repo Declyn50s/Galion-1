@@ -1,7 +1,7 @@
 // src/features/user-profile/UserProfilePage.tsx
 import React from "react";
 import { useParams } from "react-router-dom";
-
+import { useJournalStore } from "@/features/journal/store";
 import HeaderBar from "./components/HeaderBar";
 import InteractionBar from "./components/InteractionBar";
 import DatesCard from "./components/DatesCard";
@@ -14,9 +14,7 @@ import DocumentManager from "./components/DocumentManager/DocumentManager";
 import InteractionTimeline from "./components/InteractionTimeline/InteractionTimeline";
 import HousingProposals from "./components/HousingProposals/HousingProposals";
 import HouseholdCounters from "./components/HouseholdCounters/HouseholdCounters";
-import QuickNavSticky, {
-  QuickNavIcons,
-} from "./components/QuickNavSticky/QuickNavSticky";
+import QuickNavSticky from "@/features/user-profile/components/QuickNavSticky/QuickNavSticky";
 import AttestationDialog from "@/features/attestation/AttestationDialog";
 import { canonicalizeRole } from "@/lib/roles";
 import { useInteractionsStore } from "@/features/interactions/store";
@@ -173,6 +171,34 @@ const UserProfilePage: React.FC = () => {
     }
     return a;
   }, [state.userProfile.birthDate, household]);
+
+  type JournalUtilisateur = {
+    titre: "M." | "Mme" | string;
+    nom: string;
+    prenom: string;
+    dateNaissance: string;
+    adresse: string;
+    npa: string;
+    ville: string;
+    nbPers: number;
+    nbEnf: number;
+  };
+
+  function toJournalUserFromProfile(p: any): people.JournalUtilisateur {
+    return {
+      titre: p.gender === "Féminin" ? "Mme" : "M.",
+      nom: String(p.lastName || p.nom || "").toUpperCase(),
+      prenom: p.firstName || p.prenom || "",
+      dateNaissance: (p.birthDate || p.dateNaissance || "").slice(0, 10), // ISO déjà ?
+      adresse: [p.adresse || p.address, p.addressComplement || p.complement]
+        .filter(Boolean)
+        .join(", "),
+      npa: p.postalCode || p.npa || "",
+      ville: p.city || p.ville || "",
+      nbPers: 1,
+      nbEnf: 0,
+    };
+  }
 
   // Colonne de base selon nb de mineurs “comptés”
   const baseCol = React.useMemo<number>(() => {
@@ -387,53 +413,43 @@ const UserProfilePage: React.FC = () => {
               items={[
                 {
                   id: "section-counters",
-                  label: "En bref",
-                  icon: QuickNavIcons.menage,
+                  label: "👪 En bref",
                 },
                 {
                   id: "section-dates",
-                  label: "Dates",
-                  icon: QuickNavIcons.timeline,
+                  label: "📅 Dates",
                 },
                 {
                   id: "section-info",
-                  label: "Informations",
-                  icon: QuickNavIcons.info,
+                  label: "👤 Informations",
                 },
                 {
                   id: "section-household",
-                  label: "Ménage",
-                  icon: QuickNavIcons.menage,
+                  label: "👪 Ménage",
                 },
                 {
                   id: "section-income",
-                  label: "Revenus",
-                  icon: QuickNavIcons.revenus,
+                  label: "💰 Revenus",
                 },
                 {
                   id: "section-timeline",
-                  label: "Interactions",
-                  icon: QuickNavIcons.timeline,
+                  label: "💬 Interactions",
                 },
                 {
                   id: "section-docs",
-                  label: "Documents",
-                  icon: QuickNavIcons.docs,
+                  label: "📁 Documents",
                 },
                 {
                   id: "section-proposals",
-                  label: "Propositions",
-                  icon: QuickNavIcons.props,
+                  label: "🏠 Propositions",
                 },
                 {
                   id: "section-history",
-                  label: "Historique",
-                  icon: QuickNavIcons.timeline,
+                  label: "📜 Historique",
                 },
                 {
                   id: "section-session",
-                  label: "Séance",
-                  icon: QuickNavIcons.timeline,
+                  label: "🪑 Séance",
                 },
               ]}
             />
@@ -458,58 +474,55 @@ const UserProfilePage: React.FC = () => {
           isOpen={state.dialogOpen.isOpen}
           onClose={state.handleDialogClose}
           initialType={state.dialogOpen.type as any}
+          relatedUsers={[
+            toJournalUserFromProfile(state.userProfile),
+            ...household.map(toJournalUserFromProfile),
+          ]}
+          dossierId={state.dialogOpen.dossierId ?? "DOS-AUTO"}
+          // ✅ une seule source NSS, avec fallback
+          nss={
+            state.dialogOpen.nss || state.userProfile.socialSecurityNumber || ""
+          }
+          agentName={state.currentUser?.fullName ?? "Agent"}
+          isLLM={isSubsidized}
+          onPublishedToJournal={(entry) => {
+            // ➜ rend visible immédiatement dans /journal
+            useJournalStore.getState().addTask(entry);
+
+            // Optionnel : feedback dev
+            console.log("Publié au Journal:", entry);
+          }}
           onSave={(data) => {
             const addInteraction =
               useInteractionsStore.getState().addInteraction;
-            const now = new Date().toISOString();
-
-            const normalizeType = (
-              t: any
-            ):
-              | "guichet"
-              | "telephone"
-              | "courrier"
-              | "email"
-              | "jaxform"
-              | "commentaire" => {
-              switch (String(t)) {
-                case "telephone":
-                case "phone":
-                  return "telephone";
-                case "courrier":
-                  return "courrier";
-                case "email":
-                case "mail":
-                  return "email";
-                case "jaxform":
-                  return "jaxform";
-                case "guichet":
-                  return "guichet";
-                case "commentaire":
-                case "comment":
-                case "note":
-                default:
-                  return "commentaire";
-              }
-            };
-
             addInteraction({
-      userId: userId ?? "",                 // 👈 rattaché à l’usager courant
-      id: crypto.randomUUID(),
-      type: data.type ?? "commentaire",     // mappé à ton enum actuel
-      subject: data.subject || "",
-      customSubject: data.customSubject || "",
-      comment: (data.comment || data.message || data.meta?.comment || "").trim(),
-      tags: Array.isArray(data.tags) ? data.tags : [],
-      observations: (data.observations || data.meta?.observations || "").trim(),
-      isAlert: !!data.isAlert,
-      // optionnels si tu veux afficher les cases cochées dans la timeline
-      commentOptions: Array.isArray(data.commentOptions) ? data.commentOptions : [],
-      observationTags: Array.isArray(data.observationTags) ? data.observationTags : [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
-
+              userId: userId ?? "",
+              id: crypto.randomUUID(),
+              type: data.type ?? "commentaire",
+              subject: data.subject || "",
+              customSubject: data.customSubject || "",
+              comment: (
+                data.comment ||
+                data.message ||
+                data.meta?.comment ||
+                ""
+              ).trim(),
+              tags: Array.isArray(data.tags) ? data.tags : [],
+              observations: (
+                data.observations ||
+                data.meta?.observations ||
+                ""
+              ).trim(),
+              isAlert: !!data.isAlert,
+              commentOptions: Array.isArray(data.commentOptions)
+                ? data.commentOptions
+                : [],
+              observationTags: Array.isArray(data.observationTags)
+                ? data.observationTags
+                : [],
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            });
             state.handleDialogClose();
           }}
         />

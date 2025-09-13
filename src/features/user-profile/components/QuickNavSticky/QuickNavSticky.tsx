@@ -165,7 +165,6 @@ const QuickNavItemRow: React.FC<{
       >
         <span className="inline-flex items-center gap-2">
           <span className="text-slate-500">
-            {item.icon ?? <List className={S.icon} />}
           </span>
           <span className={cn(S.label, 'truncate')}>{item.label}</span>
         </span>

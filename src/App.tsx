@@ -1,33 +1,32 @@
 // src/App.tsx
-import React from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { Layout } from './components/layout/Layout'
-import Journal from './pages/Journal'
-import { UsersPage } from './pages/user/UsersPage'
-import { UserProfilePage } from '@/features/user-profile'
+import React from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Layout } from "./components/layout/Layout";
+import Journal from "./pages/Journal";
+import { UsersPage } from "./pages/user/UsersPage";
+import { UserProfilePage } from "@/features/user-profile";
 import TenantProfilePage from "@/features/tenant/TenantProfilePage";
-import { Memento } from './pages/memo/Memento'
+import { Memento } from "./pages/memo/Memento";
+import HousingPage from "./pages/housing/HousingPage";
+import LlmVacantList from "./pages/housing/LlmVacantList";
+import GerancesList from "./pages/housing/GerancesList";
+import ImmeublesList from "./pages/housing/ImmeublesList";
 
-import HousingPage from './pages/housing/HousingPage'
-import LlmVacantList from './pages/housing/LlmVacantList'
-import GerancesList from './pages/housing/GerancesList'
-import ImmeublesList from './pages/housing/ImmeublesList'
+import SessionPage from "./pages/session/SessionPage";
+import TeamMeetingsList from "./pages/session/TeamMeetingsList";
+import RecoursReclamationsList from "./pages/session/RecoursReclamationsList";
+import DerogationsList from "./pages/session/DerogationsList";
+import DerogationsPV from "./pages/session/DerogationsPV";
 
-import SessionPage from './pages/session/SessionPage'
-import TeamMeetingsList from './pages/session/TeamMeetingsList'
-import RecoursReclamationsList from './pages/session/RecoursReclamationsList'
-import DerogationsList from './pages/session/DerogationsList'
-import DerogationsPV from './pages/session/DerogationsPV'
+import AgendaPage from "./pages/agenda/AgendaPage";
+import Convocation from "./pages/agenda/Convocation";
+import Planning from "./pages/agenda/Planning";
+import Vacances from "./pages/agenda/Vacances";
 
-import AgendaPage from './pages/agenda/AgendaPage'
-import Convocation from './pages/agenda/Convocation'
-import Planning from './pages/agenda/Planning'
-import Vacances from './pages/agenda/Vacances'
+import { ReportsPage } from "@/pages/reports/ReportsPage";
 
-import { ReportsPage } from '@/pages/reports/ReportsPage'
-
-import { Toaster } from '@/components/ui/toaster'
-import './App.css'
+import { Toaster } from "@/components/ui/toaster";
+import "./App.css";
 
 export default function App() {
   return (
@@ -76,10 +75,13 @@ export default function App() {
           </Route>
 
           {/* 404 */}
-          <Route path="*" element={<div className="p-6">Page non trouvée</div>} />
+          <Route
+            path="*"
+            element={<div className="p-6">Page non trouvée</div>}
+          />
         </Route>
       </Routes>
       <Toaster />
     </BrowserRouter>
-  )
+  );
 }

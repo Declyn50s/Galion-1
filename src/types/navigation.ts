@@ -45,7 +45,7 @@ export const navigationSections: NavigationSection[] = [
           { id: 'agenda-vacances',    label: 'Vacances',    path: '/agenda/vacances',    icon: 'Plane' }
         ]
       },
-      { id: 'reports', label: 'Statistiques / Rapports', icon: 'BarChart3',   path: '/reports' },
+      { id: 'reports', label: 'Statistiques', icon: 'BarChart3',   path: '/reports' },
       { id: 'session', label: 'Séances',                  icon: 'Presentation', path: '/session' },
       { id: 'memo',    label: 'Mémento',                  icon: 'StickyNote',   path: '/memo' }
     ]
@@ -53,7 +53,7 @@ export const navigationSections: NavigationSection[] = [
   {
     id: 'admin',
     items: [
-      { id: 'settings', label: 'Paramètres / Gestion des utilisateurs', icon: 'Settings', path: '/settings' }
+      { id: 'settings', label: 'Paramètres', icon: 'Settings', path: '/settings' }
     ]
   }
 ];

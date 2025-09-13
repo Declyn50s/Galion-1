@@ -104,7 +104,7 @@ const initials3 = (s?: string) =>
 
 /* Composant */
 const InteractionTimeline: React.FC<{ title?: string }> = ({
-  title = "Historique des interactions",
+  title = "💬 Historique des interactions",
 }) => {
   const { userId } = useParams<{ userId: string }>();
 
@@ -141,7 +141,7 @@ const InteractionTimeline: React.FC<{ title?: string }> = ({
   return (
     <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
       <CardHeader className="pb-3">
-        <CardTitle className="text-lg">🧭 {title}</CardTitle>
+        <CardTitle className="text-lg"> {title}</CardTitle>
       </CardHeader>
 
       <CardContent>

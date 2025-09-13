@@ -9,6 +9,12 @@ import { Banknote, Calculator } from "lucide-react";
 import type { LeaseCardCommonProps, OnClicks, LeaseValue } from "./types";
 import { CHF, numberOr, parseNumber } from "./utils";
 
+/**
+ * MoneyInput
+ * - Garde une string pendant la frappe (évite l’écrasement à 0/"" en cours de saisie).
+ * - Au blur/Enter: commit seulement si c'est un nombre valide; sinon rollback à la dernière valeur valide.
+ * - Resync depuis la prop uniquement si la valeur externe a vraiment changé (évite les resets pendant la frappe).
+ */
 const MoneyInput: React.FC<{
   id: string;
   value?: number;
@@ -16,14 +22,59 @@ const MoneyInput: React.FC<{
   readOnly?: boolean;
   className?: string;
 }> = ({ id, value, onChange, readOnly, className }) => {
-  const [raw, setRaw] = React.useState(value ?? 0);
-  React.useEffect(() => setRaw(value ?? 0), [value]);
+  const [committed, setCommitted] = React.useState<number | undefined>(value);
+  const [raw, setRaw] = React.useState<string>(
+    value != null ? String(value) : ""
+  );
+
+  // Resynchronise seulement quand la valeur externe ≠ dernière valeur commitée
+  React.useEffect(() => {
+    if (value !== committed) {
+      setCommitted(value);
+      setRaw(value != null ? String(value) : "");
+    }
+  }, [value, committed]);
+
+  const normalizeForParse = (s: string) =>
+    s
+      .trim()
+      .replace(/\s+/g, "") // espaces
+      .replace(/['’_]/g, "") // séparateurs de milliers usuels
+      .replace(",", "."); // virgule -> point
+
+  const commitIfValid = () => {
+    const normalized = normalizeForParse(raw);
+    const n = parseNumber(normalized);
+
+    if (n == null || Number.isNaN(n)) {
+      // invalide -> rollback affichage, ne remonte rien
+      setRaw(committed != null ? String(committed) : "");
+      return;
+    }
+
+    if (n !== committed) {
+      setCommitted(n);
+      onChange(n);
+      // On laisse le parent propager value; raw sera resync via useEffect si besoin
+    }
+  };
+
   return (
     <Input
       id={id}
-      value={raw === undefined ? "" : String(raw)}
-      onChange={(e) => setRaw(parseNumber(e.target.value) ?? 0)}
-      onBlur={() => onChange(raw)}
+      value={raw}
+      onChange={(e) => {
+        // Autorise états transitoires (vide, "-", "1,", etc.). Filtre le reste.
+        const next = e.target.value.replace(/[^\d.,\s\-+'’_]/g, "");
+        setRaw(next);
+      }}
+      onBlur={commitIfValid}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          (e.currentTarget as HTMLInputElement).blur();
+        }
+      }}
+      onFocus={(e) => e.currentTarget.select()}
       inputMode="decimal"
       readOnly={readOnly}
       className={className}
@@ -90,11 +141,11 @@ const RentAidCard: React.FC<LeaseCardCommonProps & OnClicks> = ({
 
           <div className="md:col-span-3">
             <Label htmlFor="annualNet">Loyer annuel net</Label>
-            {/* Affichage strictement non modifiable */}
+            {/* Affichage non modifiable, sélectionnable, ignoré par Tab */}
             <Input
               id="annualNet"
               value={CHF(annualNet)}
-              disabled
+              readOnly
               tabIndex={-1}
               aria-readonly="true"
               className="bg-slate-100 text-slate-700"

@@ -233,8 +233,7 @@ const HouseholdCard: React.FC<Props> = ({
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="text-xl font-semibold text-slate-800 flex items-center gap-2">
-            <Users className="h-5 w-5" />
-            Ménage ({household.length} personne
+            👪 Ménage ({household.length} personne
             {household.length > 1 ? "s" : ""})
             {hasSpouse && (
               <Badge variant="secondary" className="ml-2">

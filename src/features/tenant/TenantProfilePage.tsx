@@ -10,7 +10,8 @@ import HouseholdCounters from "@/features/user-profile/components/HouseholdCount
 import DocumentManager from "@/features/user-profile/components/DocumentManager/DocumentManager";
 import InteractionTimeline from "@/features/user-profile/components/InteractionTimeline/InteractionTimeline";
 import InteractionBar from "@/features/user-profile/components/InteractionBar";
-
+import { useJournalStore } from "@/features/journal/store";
+import * as people from "@/data/peopleClient";
 import LeaseCompact from "@/features/tenant/components/LeaseCompact";
 import DernierControl, {
   type ControlEntry,
@@ -48,6 +49,22 @@ import {
 /* ─────────────────────────────────────────────────────────
    Helpers alignés
 ────────────────────────────────────────────────────────── */
+// ⬇️ Colle ce helper à côté de tes autres helpers (même version que dans UserProfilePage)
+function toJournalUserFromProfile(p: any): people.JournalUtilisateur {
+  return {
+    titre: p.gender === "Féminin" ? "Mme" : "M.",
+    nom: String(p.lastName || p.nom || "").toUpperCase(),
+    prenom: p.firstName || p.prenom || "",
+    dateNaissance: (p.birthDate || p.dateNaissance || "").slice(0, 10),
+    adresse: [p.adresse || p.address, p.addressComplement || p.complement]
+      .filter(Boolean)
+      .join(", "),
+    npa: p.postalCode || p.npa || "",
+    ville: p.city || p.ville || "",
+    nbPers: 1,
+    nbEnf: 0,
+  };
+}
 
 const normalizeRole = (s?: string) =>
   (s || "")
@@ -433,32 +450,21 @@ const TenantProfilePage: React.FC = () => {
             <section id="section-supplement">
               <div className="rounded-md border bg-white p-4 text-sm text-slate-600">
                 Supplément loyer — à intégrer (calculs, échéances, décisions).
-              </div>
-            </section>
-
-            {/* 10) Suppression des aides (placeholder) */}
-            <section id="section-suppression">
-              <div className="rounded-md border bg-white p-4 text-sm text-slate-600">
+                <br></br>
                 Suppression des aides — à intégrer (motifs, dates,
-                notifications).
-              </div>
-            </section>
-
-            {/* 11) Échéancier cellules logement (placeholder) */}
-            <section id="section-echeancier">
-              <div className="rounded-md border bg-white p-4 text-sm text-slate-600">
+                notifications).<br></br>
                 Échéancier cellules logement — à intégrer.
               </div>
             </section>
 
-            {/* 12) Historique */}
+            {/* 10) Historique */}
             <section id="section-history">
               <div className="rounded-md border bg-white p-4 text-sm text-slate-600">
                 Historique — à intégrer (journal global spécifique locataire).
               </div>
             </section>
 
-            {/* 13) Séances */}
+            {/* 11) Séances */}
             <section id="section-session">
               <div className="rounded-md border bg-white p-4 text-sm text-slate-600">
                 Séances — à intégrer (réunions, décisions liées au dossier
@@ -474,68 +480,47 @@ const TenantProfilePage: React.FC = () => {
               items={[
                 {
                   id: "section-household-info",
-                  label: "En bref",
-                  icon: QuickNavIcons.menage,
+                  label: "👪 En bref",
                 },
                 {
                   id: "section-info",
-                  label: "Informations",
-                  icon: QuickNavIcons.info,
+                  label: "👤 Informations",
                 },
                 {
                   id: "section-household-manage",
-                  label: "Ménage",
-                  icon: QuickNavIcons.menage,
+                  label: "👪 Ménage",
                 },
                 {
                   id: "section-interactions",
-                  label: "Interactions",
-                  icon: QuickNavIcons.timeline,
+                  label: "💬 Interactions",
                 },
                 {
                   id: "section-lastcheck",
-                  label: "Dernier contrôle",
-                  icon: QuickNavIcons.timeline,
+                  label: "🔍 Dernier contrôle",
                 },
                 {
                   id: "section-lease",
-                  label: "Bail",
-                  icon: QuickNavIcons.docs,
+                  label: "📝 Bail",
                 },
                 {
                   id: "section-income",
-                  label: "Revenu",
-                  icon: QuickNavIcons.revenus,
+                  label: "💰 Revenu",
                 },
                 {
                   id: "section-docs",
-                  label: "Documents",
-                  icon: QuickNavIcons.docs,
+                  label: "📁 Documents",
                 },
                 {
-                  id: "section-supplement",
-                  label: "Supplément loyer",
-                  icon: QuickNavIcons.props,
-                },
-                {
-                  id: "section-suppression",
-                  label: "Suppression des aides",
-                  icon: QuickNavIcons.props,
-                },
-                {
-                  id: "section-echeancier",
-                  label: "Échéancier cellules logement",
-                  icon: QuickNavIcons.timeline,
+                  id: "section-logement",
+                  label: "🏠 Paramètres logement",
                 },
                 {
                   id: "section-history",
-                  label: "Historique",
-                  icon: QuickNavIcons.timeline,
+                  label: "📜 Historique",
                 },
                 {
                   id: "section-session",
-                  label: "Séances",
-                  icon: QuickNavIcons.timeline,
+                  label: "🪑 Séances",
                 },
               ]}
             />
@@ -628,35 +613,55 @@ const TenantProfilePage: React.FC = () => {
           isOpen={state.dialogOpen.isOpen}
           onClose={state.handleDialogClose}
           initialType={state.dialogOpen.type as any}
-          onSave={(data: any) => {
-            // Publication directe dans le store (schema Interaction actuel)
-            const now = new Date().toISOString();
+          relatedUsers={[
+            toJournalUserFromProfile(state.userProfile),
+            ...household.map(toJournalUserFromProfile),
+          ]}
+          dossierId={state.dialogOpen.dossierId ?? "DOS-AUTO"}
+          // ✅ une seule source NSS, avec fallback
+          nss={
+            state.dialogOpen.nss || state.userProfile.socialSecurityNumber || ""
+          }
+          agentName={state.currentUser?.fullName ?? "Agent"}
+          isLLM={isSubsidized}
+          onPublishedToJournal={(entry) => {
+            // ➜ rend visible immédiatement dans /journal
+            useJournalStore.getState().addTask(entry);
 
-            // Types autorisés par ton Interaction.ts
-            const mappedType = normalizeInteractionType(data.type);
-
-            // ⚠ Interaction.ts actuel n'a pas commentOptions/observationTags
-            // On les passe quand même si ta store les accepte (cast any),
-            // sinon ils seront ignorés sans casser TypeScript côté page.
-            const payload: any = {
-              type: mappedType,
+            // Optionnel : feedback dev
+            console.log("Publié au Journal:", entry);
+          }}
+          onSave={(data) => {
+            const addInteraction =
+              useInteractionsStore.getState().addInteraction;
+            addInteraction({
+              userId: userId ?? "",
+              id: crypto.randomUUID(),
+              type: data.type ?? "commentaire",
               subject: data.subject || "",
               customSubject: data.customSubject || "",
-              comment: (data.comment || "").trim(),
+              comment: (
+                data.comment ||
+                data.message ||
+                data.meta?.comment ||
+                ""
+              ).trim(),
               tags: Array.isArray(data.tags) ? data.tags : [],
-              observations: (data.observations || "").trim(),
+              observations: (
+                data.observations ||
+                data.meta?.observations ||
+                ""
+              ).trim(),
               isAlert: !!data.isAlert,
-              createdAt: now,
-              updatedAt: now,
-            };
-
-            // Champs optionnels (si le store a été étendu pour les supporter)
-            if (Array.isArray(data.commentOptions))
-              payload.commentOptions = data.commentOptions;
-            if (Array.isArray(data.observationTags))
-              payload.observationTags = data.observationTags;
-
-            addInteraction(payload as any);
+              commentOptions: Array.isArray(data.commentOptions)
+                ? data.commentOptions
+                : [],
+              observationTags: Array.isArray(data.observationTags)
+                ? data.observationTags
+                : [],
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            });
             state.handleDialogClose();
           }}
         />
