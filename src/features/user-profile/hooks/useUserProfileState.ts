@@ -19,9 +19,6 @@ const slugify = (s: string) =>
     .replace(/\s+/g, '-')
     .replace(/[^a-z0-9\-\.]/g, '')
 
-const makeUserId = (p: { nom: string; prenom: string; dateNaissance: string }) =>
-  slugify(`${p.nom}-${p.prenom}-${p.dateNaissance}`)
-
 const pad2 = (n: number) => String(n).padStart(2, '0')
 
 /** Convertit 31.12.1990 -> 1990-12-31 ; laisse passer les ISO déjà valides */
@@ -37,6 +34,13 @@ const toISOFromCH = (d?: string) => {
   }
   return d // fallback
 }
+
+/** ⚠️ slug stable basé sur la date ISO */
+const makeUserId = (p: { nom: string; prenom: string; dateNaissance: string }) =>
+  slugify(`${p.nom}-${p.prenom}-${toISOFromCH(p.dateNaissance)}`)
+
+/** Garde seulement les chiffres d’un NSS */
+const onlyDigits = (s?: string) => (s ? s.replace(/\D/g, '') : '')
 
 /* ---- Rôle "Conjoint" : helpers de normalisation / test ---- */
 const normalize = (s?: string) =>
@@ -99,7 +103,7 @@ export function useUserProfileState(userId?: string) {
     curatorEmail: '',
   })
 
-  /* ===== Charger l’usager depuis /people.json selon :userId ===== */
+  /* ===== Charger l’usager depuis /people.json selon :userId (slug | USR-… | NSS) ===== */
   useEffect(() => {
     if (!userId) return
     const load = async () => {
@@ -108,10 +112,12 @@ export function useUserProfileState(userId?: string) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
         type PersonJSON = {
+          id?: string            // ex: "USR-7561234567890"
+          nss?: string           // ex: "756.1234.5678.90"
           genre: string
           nom: string
           prenom: string
-          dateNaissance: string
+          dateNaissance: string  // "YYYY-MM-DD" ou "DD.MM.YYYY"
           adresse: string
           complement?: string
           npa: string
@@ -121,7 +127,31 @@ export function useUserProfileState(userId?: string) {
 
         const people: PersonJSON[] = await res.json()
         const decodedId = decodeURIComponent(userId)
-        const found = people.find((p) => makeUserId(p) === decodedId)
+
+        // On récupère éventuellement le NSS passé en query string (?nss=...)
+        const qs = new URLSearchParams(window.location.search)
+        const nssFromQS = onlyDigits(qs.get('nss') || qs.get('NSS') || undefined)
+
+        // Prépare des variantes de comparaison pour chaque personne
+        const found = people.find((p) => {
+          const slug = makeUserId(p)
+          const isoSlug = slug // déjà ISO via makeUserId
+
+          const idMatch =
+            (p.id && p.id.toUpperCase() === decodedId.toUpperCase()) ||
+            decodedId.toUpperCase() === (`USR-${onlyDigits(p.nss)}`).toUpperCase()
+
+          const slugMatch =
+            decodedId.toLowerCase() === slug.toLowerCase() ||
+            decodedId.toLowerCase() === isoSlug.toLowerCase()
+
+          const nssDigits = onlyDigits(p.nss)
+          const nssMatch =
+            !!nssDigits &&
+            (nssDigits === onlyDigits(decodedId) || (nssFromQS && nssDigits === nssFromQS))
+
+          return idMatch || slugMatch || nssMatch
+        })
 
         if (!found) {
           console.warn('[UserProfile] userId non trouvé dans people.json :', decodedId)
@@ -145,6 +175,8 @@ export function useUserProfileState(userId?: string) {
           maritalStatus: prev.maritalStatus ?? 'Célibataire',
           lausanneStatus:
             found.ville === 'Lausanne' ? 'Arrivé à Lausanne' : 'Rentré par le travail',
+          // Si people.json contient le NSS on l’injecte
+          socialSecurityNumber: found.nss ?? prev.socialSecurityNumber,
         }))
       } catch (e) {
         console.error('[UserProfile] échec de chargement people.json', e)

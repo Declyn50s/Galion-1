@@ -2,7 +2,7 @@
 import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Layout } from "./components/layout/Layout";
-import Journal from "./pages/Journal";
+import Journal from "./pages/journal/Journal";
 import { UsersPage } from "./pages/user/UsersPage";
 import { UserProfilePage } from "@/features/user-profile";
 import TenantProfilePage from "@/features/tenant/TenantProfilePage";
@@ -11,7 +11,7 @@ import HousingPage from "./pages/housing/HousingPage";
 import LlmVacantList from "./pages/housing/LlmVacantList";
 import GerancesList from "./pages/housing/GerancesList";
 import ImmeublesList from "./pages/housing/ImmeublesList";
-
+import TasksPage from "@/pages/tasks/TasksPage";
 import SessionPage from "./pages/session/SessionPage";
 import TeamMeetingsList from "./pages/session/TeamMeetingsList";
 import RecoursReclamationsList from "./pages/session/RecoursReclamationsList";
@@ -45,6 +45,7 @@ export default function App() {
           <Route path="/users" element={<UsersPage />} />
           <Route path="/journal" element={<Journal />} />
           <Route path="/memo" element={<Memento />} />
+          <Route path="/tasks" element={<TasksPage />} />
 
           {/* Agenda + sous-pages */}
           <Route path="/agenda" element={<AgendaPage />}>
@@ -75,10 +76,7 @@ export default function App() {
           </Route>
 
           {/* 404 */}
-          <Route
-            path="*"
-            element={<div className="p-6">Page non trouvée</div>}
-          />
+          <Route path="*" element={<div className="p-6">Page non trouvée</div>} />
         </Route>
       </Routes>
       <Toaster />

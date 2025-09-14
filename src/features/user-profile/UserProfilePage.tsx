@@ -1,6 +1,7 @@
 // src/features/user-profile/UserProfilePage.tsx
 import React from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useLocation } from "react-router-dom";
+
 import { useJournalStore } from "@/features/journal/store";
 import HeaderBar from "./components/HeaderBar";
 import InteractionBar from "./components/InteractionBar";
@@ -9,7 +10,7 @@ import IncomeCard from "./components/IncomeCard/IncomeCard";
 import PersonalInfoCard from "./components/PersonalInfoCard";
 import HouseholdCard from "./components/Household/HouseholdCard";
 import { useUserProfileState } from "./hooks/useUserProfileState";
-import InteractionDialog from "@/components/InteractionDialog"; // ✅ import par défaut
+import InteractionDialog from "@/components/InteractionDialog";
 import DocumentManager from "./components/DocumentManager/DocumentManager";
 import InteractionTimeline from "./components/InteractionTimeline/InteractionTimeline";
 import HousingProposals from "./components/HousingProposals/HousingProposals";
@@ -18,6 +19,8 @@ import QuickNavSticky from "@/features/user-profile/components/QuickNavSticky/Qu
 import AttestationDialog from "@/features/attestation/AttestationDialog";
 import { canonicalizeRole } from "@/lib/roles";
 import { useInteractionsStore } from "@/features/interactions/store";
+import TreatmentModeBar from "./components/TreatmentModeBar";
+import * as people from "@/data/peopleClient";
 
 // LLM / immeubles subventionnés
 import { isAdresseInImmeubles } from "@/data/immeubles";
@@ -25,8 +28,10 @@ import { isAdresseInImmeubles } from "@/data/immeubles";
 // Barème
 import { rentLimitFromIncome, BaremeColumn } from "@/lib/bareme";
 
-// ────────────────────────────────────────────────────────────────────────────────
-// Helpers
+/* ────────────────────────────────────────────────────────────────────────────────
+   Helpers
+──────────────────────────────────────────────────────────────────────────────── */
+
 const toDate = (s?: string) => {
   if (!s) return undefined;
   const d = new Date(s);
@@ -119,14 +124,20 @@ function buildAttestationDataFromProfile(p: any): Record<string, string> {
       ? new Date(p.lausanneStatusDate).toLocaleDateString("fr-CH")
       : "",
     NB_MINEURS: String(
-      (p.household || []).filter((m: any) => yearsDiff(m.birthDate) < 18).length
+      (p.household || []).filter((m: any) => yearsDiff(m.birthDate) < 18)
+        .length
     ),
   };
 }
-// ────────────────────────────────────────────────────────────────────────────────
+
+/* ────────────────────────────────────────────────────────────────────────────────
+   Page
+──────────────────────────────────────────────────────────────────────────────── */
 
 const UserProfilePage: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
+  const location = useLocation();
+
   const state = useUserProfileState(userId);
 
   // RDU ménage récupéré depuis IncomeCard
@@ -147,7 +158,7 @@ const UserProfilePage: React.FC = () => {
     }, 0);
   }, [household]);
 
-  // Enfants “comptés” (barème) = enfant / à charge / garde alternée, permis valide, < 18 ans, hors DV
+  // Enfants “comptés” (barème)
   const minorsCount = React.useMemo(() => {
     return (household ?? []).reduce((acc: number, m: any) => {
       if (!isCountedChildRole(m.role)) return acc;
@@ -157,14 +168,10 @@ const UserProfilePage: React.FC = () => {
     }, 0);
   }, [household]);
 
-  // Adultes pour distinguer personne seule vs couple (on exclut seulement DV)
+  // Adultes (hors DV)
   const adultsCount = React.useMemo(() => {
     const hasBirth = !!state.userProfile.birthDate;
-    let a = hasBirth
-      ? yearsDiff(state.userProfile.birthDate) >= 18
-        ? 1
-        : 0
-      : 1;
+    let a = hasBirth ? (yearsDiff(state.userProfile.birthDate) >= 18 ? 1 : 0) : 1;
     for (const m of household) {
       if (isVisitingChildRole(m.role)) continue;
       if (yearsDiff(m.birthDate) >= 18) a += 1;
@@ -172,24 +179,12 @@ const UserProfilePage: React.FC = () => {
     return a;
   }, [state.userProfile.birthDate, household]);
 
-  type JournalUtilisateur = {
-    titre: "M." | "Mme" | string;
-    nom: string;
-    prenom: string;
-    dateNaissance: string;
-    adresse: string;
-    npa: string;
-    ville: string;
-    nbPers: number;
-    nbEnf: number;
-  };
-
   function toJournalUserFromProfile(p: any): people.JournalUtilisateur {
     return {
       titre: p.gender === "Féminin" ? "Mme" : "M.",
       nom: String(p.lastName || p.nom || "").toUpperCase(),
       prenom: p.firstName || p.prenom || "",
-      dateNaissance: (p.birthDate || p.dateNaissance || "").slice(0, 10), // ISO déjà ?
+      dateNaissance: (p.birthDate || p.dateNaissance || "").slice(0, 10),
       adresse: [p.adresse || p.address, p.addressComplement || p.complement]
         .filter(Boolean)
         .join(", "),
@@ -200,45 +195,107 @@ const UserProfilePage: React.FC = () => {
     };
   }
 
-  // Colonne de base selon nb de mineurs “comptés”
+  // Barème
   const baseCol = React.useMemo<number>(() => {
-    const n = Math.max(0, Math.floor(minorsCount)); // 0 enfant → Col.1 ; 1 → Col.2 ; …
+    const n = Math.max(0, Math.floor(minorsCount));
     return n === 0 ? 1 : Math.min(n, 4) + 1;
   }, [minorsCount]);
-
-  // Colonne finale = colonne de base (DV n'influe PAS la colonne)
-  const finalCol = React.useMemo<BaremeColumn>(() => {
-    return baseCol as BaremeColumn;
-  }, [baseCol]);
-
-  // Loyer min (limite barème) d’après le RDU total et la colonne finale
+  const finalCol = React.useMemo<BaremeColumn>(() => baseCol as BaremeColumn, [baseCol]);
   const minRent = React.useMemo(() => {
     if (!rduTotal || rduTotal <= 0) return undefined;
     return rentLimitFromIncome(rduTotal, finalCol);
   }, [rduTotal, finalCol]);
 
-  // Détection LLM (immeuble subventionné) pour badge & navigation
+  // Détection LLM (immeuble subventionné)
   const adresseProfil = addressLineFromProfile(state.userProfile);
   const isSubsidized = React.useMemo(
     () => (adresseProfil ? isAdresseInImmeubles(adresseProfil) : false),
     [adresseProfil]
   );
 
-  // Wrapper sûr pour DatesCard (évite "onChange is not a function")
+  // DatesCard change wrapper
   const handleDatesChange = React.useCallback(
-    (field: string, value: any) => {
-      state.updateProfile(field, value);
-    },
+    (field: string, value: any) => state.updateProfile(field as any, value),
     [state]
   );
 
-  // Petite normalisation (affichage IncomeCard)
-  const normalizeRole = (s?: string) =>
-    (s || "")
-      .toLowerCase()
-      .replace(/-/g, "–")
-      .replace(/\s*–\s*/g, " – ")
-      .trim();
+  /* ───────────── Mode Traitement (arrivé depuis le Journal) ───────────── */
+  const qs = React.useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const taskId = qs.get("taskId") || qs.get("t") || "";
+  const isTraitement =
+    qs.get("mode") === "traitement" || !!qs.get("taskId") || !!qs.get("t");
+
+  const currentTask = useJournalStore((s) => s.tasks.find((t) => t.id === taskId));
+
+  // ✅ Patch direct du store (et broadcast event pour compat)
+  const patchJournalTask = React.useCallback(
+    (
+      patch: Partial<{
+        statut: "À traiter" | "En traitement" | "En suspens" | "Refusé" | "Validé";
+        observation: string;
+        observationTags: string[];
+      }>
+    ) => {
+      if (!taskId) return;
+      const st: any = useJournalStore.getState();
+
+      if (typeof st.patchTask === "function") {
+        st.patchTask(taskId, patch);
+      } else if (typeof st.updateTask === "function") {
+        st.updateTask(taskId, patch);
+      } else if (typeof st.setTasks === "function") {
+        const next = (st.tasks ?? []).map((t: any) => (t.id === taskId ? { ...t, ...patch } : t));
+        st.setTasks(next);
+      }
+
+      try {
+        window.dispatchEvent(new CustomEvent("journal:patch", { detail: { id: taskId, patch } }));
+      } catch {}
+    },
+    [taskId]
+  );
+
+  // ✅ Suppression directe du store (et broadcast optionnel)
+  const removeFromJournal = React.useCallback(() => {
+    if (!taskId) return;
+    const st: any = useJournalStore.getState();
+
+    if (typeof st.removeTask === "function") {
+      st.removeTask(taskId);
+    } else if (typeof st.setTasks === "function") {
+      const next = (st.tasks ?? []).filter((t: any) => t.id !== taskId);
+      st.setTasks(next);
+    }
+
+    try {
+      window.dispatchEvent(new CustomEvent("journal:remove", { detail: { id: taskId } }));
+    } catch {}
+  }, [taskId]);
+
+  // ✅ Log d’interaction lors des actions (valider / refuser / suspens)
+  const logInteraction = React.useCallback(
+    (comment: string) => {
+      const add = useInteractionsStore.getState().addInteraction;
+      add({
+        userId: userId ?? "",
+        id: crypto.randomUUID(),
+        type: "commentaire",
+        subject: "Traitement dossier",
+        customSubject: "",
+        comment,
+        tags: [],
+        observations: "",
+        isAlert: false,
+        commentOptions: [],
+        observationTags: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    },
+    [userId]
+  );
+
+  /* ────────────────────────────────────────────────────────────────────── */
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
@@ -248,13 +305,22 @@ const UserProfilePage: React.FC = () => {
           isTenant={isSubsidized}
           onSave={state.savePersonalInfo}
           onCopyAddress={state.copyAddressInfo}
-          onAction={() => setAttOpen(true)} // ← ouvre l’attestation
+          onAction={() => setAttOpen(true)}
           applicantTo={`/users/${encodeURIComponent(userId ?? "")}`}
-          tenantTo={
-            isSubsidized
-              ? `/tenants/${encodeURIComponent(userId ?? "")}`
-              : undefined
-          }
+          tenantTo={isSubsidized ? `/tenants/${encodeURIComponent(userId ?? "")}` : undefined}
+        />
+
+        {/* Barre d’actions : Mode traitement */}
+        <TreatmentModeBar
+          visible={isTraitement && !!taskId}
+          taskId={taskId}
+          currentStatus={currentTask?.statut}
+          onPatchStatus={patchJournalTask}
+          onRemove={removeFromJournal}
+          onValidateSave={() => state.savePersonalInfo()}
+          backTo="/journal"
+          hasUnsavedChanges={state.isEditingPersonalInfo}
+          onLogInteraction={logInteraction}
         />
 
         <InteractionBar onClick={state.handleInteractionClick} />
@@ -287,21 +353,18 @@ const UserProfilePage: React.FC = () => {
                 deadline={state.userProfile.deadline}
                 maxRooms={state.userProfile.maxRooms}
                 minRent={minRent}
-                /* Comptages pour la pré-sélection (règle ménage) */
                 adultsCount={adultsCount}
                 countedMinors={minorsCount}
                 visitingChildrenCount={visitingChildrenCount}
-                /* Barème / revenu */
                 baremeColumn={finalCol}
                 rduForBareme={rduTotal}
-                /* Interdiction 1,5p si âge ≥ 25 ou revenu > 1’500/mois */
                 applicantAgeYears={yearsDiff(state.userProfile.birthDate)}
                 annualIncomeCHF={rduTotal}
                 onChange={handleDatesChange}
               />
             </section>
 
-            {/* 3) Informations personnelles */}
+            {/* 3) Infos personnelles */}
             <section id="section-info">
               <PersonalInfoCard
                 userProfile={state.userProfile}
@@ -346,15 +409,11 @@ const UserProfilePage: React.FC = () => {
                   ...household.map((m: any) => {
                     const c = canonicalizeRole(m.role);
                     const role =
-                      c === "conjoint"
-                        ? "conjoint"
-                        : c.startsWith("enfant")
-                        ? "enfant"
-                        : "autre";
+                      c === "conjoint" ? "conjoint" : c.startsWith("enfant") ? "enfant" : "autre";
                     return {
                       id: m.id,
-                      role, // rôle “coarse” attendu par IncomeCard (demandeur/conjoint/enfant/autre)
-                      rawRole: m.role, // rôle brut pour détecter DV / GA correctement
+                      role,
+                      rawRole: m.role,
                       name: m.name,
                       birthDate: m.birthDate,
                       nationality: m.nationality,
@@ -364,9 +423,7 @@ const UserProfilePage: React.FC = () => {
                   }),
                 ]}
                 countMode="counted"
-                onTotalsChange={({ totalRDUHousehold }) =>
-                  setRduTotal(totalRDUHousehold)
-                }
+                onTotalsChange={({ totalRDUHousehold }) => setRduTotal(totalRDUHousehold)}
               />
             </section>
 
@@ -384,17 +441,14 @@ const UserProfilePage: React.FC = () => {
             <section id="section-proposals">
               <HousingProposals
                 densityDefault="compact"
-                onOpenLogementsLibres={() =>
-                  console.log("🔍 Ouverture logements libres (démo)")
-                }
+                onOpenLogementsLibres={() => console.log("🔍 Ouverture logements libres (démo)")}
               />
             </section>
 
             {/* 9) Historique (placeholder) */}
             <section id="section-history">
               <div className="rounded-md border bg-white p-4 text-sm text-slate-600">
-                Historique global — à intégrer (journal/audit spécifique
-                usager).
+                Historique global — à intégrer (journal/audit spécifique usager).
               </div>
             </section>
 
@@ -405,52 +459,23 @@ const UserProfilePage: React.FC = () => {
               </div>
             </section>
           </div>
+
           {/* Sticky nav à gauche */}
           <div className="hidden lg:block lg:col-span-3">
             <QuickNavSticky
               size="tight"
               offsetTop={80}
               items={[
-                {
-                  id: "section-counters",
-                  label: "👪 En bref",
-                },
-                {
-                  id: "section-dates",
-                  label: "📅 Dates",
-                },
-                {
-                  id: "section-info",
-                  label: "👤 Informations",
-                },
-                {
-                  id: "section-household",
-                  label: "👪 Ménage",
-                },
-                {
-                  id: "section-income",
-                  label: "💰 Revenus",
-                },
-                {
-                  id: "section-timeline",
-                  label: "💬 Interactions",
-                },
-                {
-                  id: "section-docs",
-                  label: "📁 Documents",
-                },
-                {
-                  id: "section-proposals",
-                  label: "🏠 Propositions",
-                },
-                {
-                  id: "section-history",
-                  label: "📜 Historique",
-                },
-                {
-                  id: "section-session",
-                  label: "🪑 Séance",
-                },
+                { id: "section-counters", label: "👪 En bref" },
+                { id: "section-dates", label: "📅 Dates" },
+                { id: "section-info", label: "👤 Informations" },
+                { id: "section-household", label: "👪 Ménage" },
+                { id: "section-income", label: "💰 Revenus" },
+                { id: "section-timeline", label: "💬 Interactions" },
+                { id: "section-docs", label: "📁 Documents" },
+                { id: "section-proposals", label: "🏠 Propositions" },
+                { id: "section-history", label: "📜 Historique" },
+                { id: "section-session", label: "🪑 Séance" },
               ]}
             />
           </div>
@@ -478,53 +503,36 @@ const UserProfilePage: React.FC = () => {
             toJournalUserFromProfile(state.userProfile),
             ...household.map(toJournalUserFromProfile),
           ]}
-          dossierId={state.dialogOpen.dossierId ?? "DOS-AUTO"}
-          // ✅ une seule source NSS, avec fallback
-          nss={
-            state.dialogOpen.nss || state.userProfile.socialSecurityNumber || ""
-          }
-          agentName={state.currentUser?.fullName ?? "Agent"}
+          dossierId={"DOS-AUTO"}
+          nss={state.userProfile.socialSecurityNumber || ""}
+          agentName={"Agent"}
           isLLM={isSubsidized}
           onPublishedToJournal={(entry) => {
-            // ➜ rend visible immédiatement dans /journal
-            useJournalStore.getState().addTask(entry);
-
-            // Optionnel : feedback dev
-            console.log("Publié au Journal:", entry);
+            // ➜ le Journal écoute "journal:add"
+            try {
+              window.dispatchEvent(new CustomEvent("journal:add", { detail: entry }));
+            } catch {}
           }}
           onSave={(data) => {
-            const addInteraction =
-              useInteractionsStore.getState().addInteraction;
+            const addInteraction = useInteractionsStore.getState().addInteraction;
             addInteraction({
               userId: userId ?? "",
               id: crypto.randomUUID(),
               type: data.type ?? "commentaire",
               subject: data.subject || "",
               customSubject: data.customSubject || "",
-              comment: (
-                data.comment ||
-                data.message ||
-                data.meta?.comment ||
-                ""
-              ).trim(),
+              comment: (data.comment || data.message || data.meta?.comment || "").trim(),
               tags: Array.isArray(data.tags) ? data.tags : [],
-              observations: (
-                data.observations ||
-                data.meta?.observations ||
-                ""
-              ).trim(),
+              observations: (data.observations || data.meta?.observations || "").trim(),
               isAlert: !!data.isAlert,
-              commentOptions: Array.isArray(data.commentOptions)
-                ? data.commentOptions
-                : [],
-              observationTags: Array.isArray(data.observationTags)
-                ? data.observationTags
-                : [],
+              commentOptions: Array.isArray(data.commentOptions) ? data.commentOptions : [],
+              observationTags: Array.isArray(data.observationTags) ? data.observationTags : [],
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
             });
             state.handleDialogClose();
           }}
+          llmHint={isSubsidized}
         />
       )}
     </div>

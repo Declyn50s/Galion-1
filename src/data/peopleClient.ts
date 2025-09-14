@@ -137,3 +137,92 @@ export function clearCache() {
 export async function prewarm() {
   await ensureLoaded();
 }
+
+// Types minimalistes — garde les tiens si tu en as déjà
+export type PeopleRecord = {
+  id: string;
+  firstName?: string;
+  lastName?: string;
+  gender?: string;
+  birthDate?: string;
+  adresse?: string;
+  postalCode?: string;
+  city?: string;
+  socialSecurityNumber?: string;
+  isApplicant?: boolean;
+  registrationDate?: string;
+  llmHint?: boolean;
+  // ... tout autre champ de ta fiche
+};
+
+// ==== stockage mock: adapte à ta stack (localStorage, Zustand, API, etc.)
+let _peopleCache: PeopleRecord[] = []; // si tu as déjà un cache, réutilise-le
+
+function loadAll(): PeopleRecord[] {
+  // remplace par ta source réelle
+  return _peopleCache;
+}
+function saveAll(arr: PeopleRecord[]) {
+  _peopleCache = arr;
+}
+
+export function findByNSS(nss?: string) {
+  const nn = (nss || "").replace(/\s+/g, "");
+  if (!nn) return undefined;
+  return loadAll().find((p) => (p.socialSecurityNumber || "").replace(/\s+/g, "") === nn);
+}
+
+export function findByIdentity(lastName?: string, firstName?: string, birthDate?: string) {
+  const ln = (lastName || "").trim().toUpperCase();
+  const fn = (firstName || "").trim().toUpperCase();
+  const bd = (birthDate || "").slice(0, 10);
+  if (!ln || !fn || !bd) return undefined;
+  return loadAll().find(
+    (p) =>
+      (p.lastName || "").toUpperCase() === ln &&
+      (p.firstName || "").toUpperCase() === fn &&
+      (p.birthDate || "").slice(0, 10) === bd
+  );
+}
+
+export function upsertApplicantFromJournal(args: {
+  nss?: string;
+  dossier?: string;
+  processedAtISO: string;
+  profilePatch: Partial<PeopleRecord>;
+}) {
+  const all = loadAll();
+  const principal = {
+    lastName: args.profilePatch.lastName,
+    firstName: args.profilePatch.firstName,
+    birthDate: args.profilePatch.birthDate,
+  };
+
+  let existing =
+    findByNSS(args.nss) ||
+    findByIdentity(principal.lastName, principal.firstName, principal.birthDate);
+
+  if (existing) {
+    const next: PeopleRecord = {
+      ...existing,
+      ...args.profilePatch,
+      isApplicant: true,
+      // ne remplace registrationDate que si absente
+      registrationDate: existing.registrationDate || args.processedAtISO,
+    };
+    const idx = all.findIndex((p) => p.id === existing!.id);
+    all[idx] = next;
+    saveAll(all);
+    return { userId: existing.id, created: false };
+  }
+
+  const id = crypto.randomUUID();
+  const created: PeopleRecord = {
+    id,
+    ...args.profilePatch,
+    isApplicant: true,
+    registrationDate: args.processedAtISO,
+  };
+  saveAll([...all, created]);
+  return { userId: id, created: true };
+}
