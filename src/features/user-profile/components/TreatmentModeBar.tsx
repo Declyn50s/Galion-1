@@ -22,35 +22,72 @@ type Props = {
 
 // ✅ LISTE CORRIGÉE DES CASES À COCHER
 const MISSING_DOCS: { id: string; label: string }[] = [
-  { id: "permit_bf_invalid", label: "Permis B/F non valide" },
-  { id: "contrat_travail", label: "Contrat de travail" },
-  { id: "fiches_salaire_6", label: "6 dernières fiches de salaire" },
-  { id: "certificats_salaire_3y", label: "Certificats de salaire des 3 dernières années" },
-  { id: "bilans_fiduciaires_3y", label: "Bilans fiduciaires des 3 dernières années" },
-  { id: "bilan_fiduciaire", label: "Bilan fiduciaire" },
-  { id: "bail_commercial", label: "Bail commercial" },
-  { id: "pc_famille_decision", label: "Décision récente PC Famille" },
-  { id: "ai_decision_degre", label: "Décision récente de la rente AI mentionnant le degré d’invalidité" },
-  { id: "avs_decision", label: "Décision récente AVS" },
-  { id: "pillar2_decision_att_fiscale", label: "Décision récente du 2ᵉ pilier ou attestation fiscale de la rente" },
-  { id: "pc_decision", label: "Décision récente de prestation complémentaire" },
-  { id: "ri_budgets_3", label: "3 derniers budgets mensuels du RI" },
-  { id: "evam_budgets_3", label: "3 derniers budgets mensuels de l’EVAM" },
-  { id: "chomage_dernier_decompte", label: "Dernier décompte de chômage" },
-  { id: "pension_convention_ratifiée", label: "Convention alimentaire ratifiée par une instance officielle" },
-  { id: "jugement_divorce", label: "Jugement de divorce ratifié par une instance officielle" },
-  { id: "jugement_separation", label: "Jugement de séparation ou mesures provisionnelles de l’union conjugale ratifiées par une instance officielle" },
-  { id: "attestation_etudes", label: "Attestation d’études" },
-  { id: "bourse_avis_octroi", label: "Avis d’octroi de bourse" },
-  { id: "apprentissage_contrat_decompte", label: "Contrat d’apprentissage + dernier décompte de salaire" },
-  { id: "rente_pont_decision", label: "Décision de rente-pont" },
-  { id: "autres_revenus_justificatifs", label: "Autres revenus → tout justificatif pertinent" },
+    { id: "preinscription_signee", label: "Formulaire de préinscription dûment rempli et signé" },
+
+// Identité & permis
+{ id: "identite_complete", label: "Papiers d'identité (CI + permis B/C/F valides)" },
+{ id: "permis_non_valide", label: "Permis de séjour non valide ou expiré" },
+
+// Travail & revenus
+{ id: "contrat_travail", label: "Contrat de travail" },
+{ id: "fiches_salaire_6", label: "6 dernières fiches de salaire" },
+{ id: "certificats_salaire_3y", label: "Certificats de salaire des 3 dernières années" },
+{ id: "bilan_fiduciaire_3y", label: "Bilans fiduciaires des 3 dernières années" },
+{ id: "bail_commercial", label: "Bail commercial" },
+
+// Prestations sociales & assurances
+{ id: "pc_famille_decision", label: "Décision récente PC Famille" },
+{ id: "pc_decision", label: "Décision récente de prestation complémentaire" },
+{ id: "ai_decision_degre", label: "Décision récente AI mentionnant le degré d’invalidité" },
+{ id: "avs_decision", label: "Décision récente AVS" },
+{ id: "deuxieme_pilier_decision", label: "2ᵉ pilier → décision/attestation de rente (y compris attestation fiscale)" },
+{ id: "ri_budgets_3", label: "3 derniers budgets mensuels du RI" },
+{ id: "evam_budgets_3", label: "3 derniers budgets mensuels de l’EVAM" },
+{ id: "chomage_dernier_decompte", label: "Dernier décompte de chômage" },
+{ id: "rente_pont_decision", label: "Décision de rente-pont" },
+
+// Famille & obligations légales
+{ id: "jugement_officiel", label: "Jugement officiel (divorce, séparation ou mesures provisoires ratifiées)" },
+{ id: "pension_convention_ratifiée", label: "Convention alimentaire ratifiée par une instance officielle" },
+
+// Études & formation
+{ id: "attestation_etudes", label: "Attestation d’études" },
+{ id: "bourse_avis_octroi", label: "Avis d’octroi de bourse" },
+{ id: "apprentissage_contrat_decompte", label: "Contrat d’apprentissage + dernier décompte de salaire" },
+
+// Autres
+{ id: "autres_revenus_justificatifs", label: "Autres revenus → tout justificatif pertinent" },
+{ id: "taxation_impots_complete", label: "Dernière décision de taxation des impôts (document complet)" },
+{ id: "viawork_contrat_lausanne", label: "Contrat de travail à Lausanne (si conditions via travail)" },
+{ id: "grossesse_certificat", label: "Certificat de grossesse" },
+{ id: "bail_loyer", label: "Bail à loyer (logement)" },
 ];
 
-const REFUS_MOTIFS = [
-  "Revenu trop élevé",
-  "N'habite pas ou ne travaille pas à Lausanne depuis 3 ans",
+// Motifs de refus (groupés pour l'UI)
+const REFUS_MOTIFS = {
+  generaux: [
+    "Durée de résidence à Lausanne insuffisante (moins de 3 ans, sans interruption)",
+    "Employeur principal hors commune de Lausanne (et/ou durée d’activité à Lausanne insuffisante)",
+    "Revenus trop élevés",
+    "Permis de séjour non valable ou en cours de renouvellement (sans justificatif suffisant)",
+    "Colocation (hors couple)",
+    "Autre(s)",
+  ],
+  etudiants: [
+    "Nationalité / permis non admissible (ni Suisse, ni permis B, C ou F)",
+    "Ne suit pas une formation à Lausanne ou dans une commune de Lausanne Région",
+    "Absence de bourse d’études et activité lucrative accessoire < CHF 6’000.–/an",
+    "Revenus mensuels de l’étudiant·e > CHF 1’500.–/mois",
+    "Absence de motif impérieux (p. ex. domicile trop éloigné du lieu d’études, loyer actuel trop élevé, bail résilié, etc.)",
+  ],
+} as const;
+
+// Liste à plat pratique pour la valeur par défaut / vérifs
+const REFUS_MOTIFS_ALL: string[] = [
+  ...REFUS_MOTIFS.generaux,
+  ...REFUS_MOTIFS.etudiants,
 ];
+
 
 const TreatmentModeBar: React.FC<Props> = ({
   visible,
@@ -75,9 +112,10 @@ const TreatmentModeBar: React.FC<Props> = ({
   const toggleDoc = (id: string) =>
     setMissingDocs((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
-  // Refus: motif + détails
-  const [refusMotif, setRefusMotif] = React.useState<string>(REFUS_MOTIFS[0]);
-  const [refusDetails, setRefusDetails] = React.useState("");
+// État “Refus”
+const [refusMotif, setRefusMotif] = React.useState<string>(REFUS_MOTIFS.generaux[0]);
+const [refusDetails, setRefusDetails] = React.useState("");
+
 
   if (!visible) return null;
 
@@ -245,22 +283,33 @@ const TreatmentModeBar: React.FC<Props> = ({
             <div className="text-lg font-semibold mb-2">Motif du refus</div>
             <div className="space-y-2">
               <select
-                value={refusMotif}
-                onChange={(e) => setRefusMotif(e.target.value)}
-                className="w-full rounded border p-2 text-sm"
-              >
-                {REFUS_MOTIFS.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
+  value={refusMotif}
+  onChange={(e) => setRefusMotif(e.target.value)}
+  className="w-full rounded border p-2 text-sm"
+>
+  <optgroup label="Motifs généraux">
+    {REFUS_MOTIFS.generaux.map((m) => (
+      <option key={m} value={m}>{m}</option>
+    ))}
+  </optgroup>
+  <optgroup label="Motifs spécifiques (formation/étudiants)">
+    {REFUS_MOTIFS.etudiants.map((m) => (
+      <option key={m} value={m}>{m}</option>
+    ))}
+  </optgroup>
+</select>
+
               <textarea
-                placeholder="Détails (optionnel)…"
-                value={refusDetails}
-                onChange={(e) => setRefusDetails(e.target.value)}
-                className="w-full rounded border p-2 text-sm min-h-[90px]"
-              />
+  placeholder={
+    refusMotif === "Autre(s)"
+      ? "Précise le motif…"
+      : "Détails (optionnel)…"
+  }
+  value={refusDetails}
+  onChange={(e) => setRefusDetails(e.target.value)}
+  className="w-full rounded border p-2 text-sm min-h-[90px]"
+/>
+
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button className="rounded border px-3 py-1 text-sm" onClick={() => setOpenRefus(false)}>

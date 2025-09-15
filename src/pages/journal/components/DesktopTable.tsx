@@ -1,8 +1,10 @@
+// src/pages/journal/components/DesktopTable.tsx
 import React from "react";
 import { ChevronDown, ChevronRight, ArrowUpDown } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { Tache } from "@/features/journal/store";
+
 import {
   fmt,
   initials3,
@@ -26,12 +28,12 @@ const INITIAL_WIDTHS = {
   statut: 140,
   observation: 360,
   priorite: 100,
-  actions: 180,
+  actions: 200,
 };
 
 /* ---------- Props ---------- */
 type Props = {
-  results?: Tache[];
+  results?: Tache[]; // ← peut être undefined
   openRows: Record<string, boolean>;
   setOpenRows: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   showAllPersons: boolean;
@@ -40,6 +42,7 @@ type Props = {
   sortDir: SortDir;
   onToggleSort: (key: SortKey) => void;
 
+  // Actions
   onTreat?: (t: Tache) => void;
   onConsult?: (t: Tache) => void;
 };
@@ -83,15 +86,15 @@ function ThResizable({
 
 /* ---------- Composant ---------- */
 const DesktopTable: React.FC<Props> = ({
-  results = [],
+  results = [], // ← fallback pour éviter .map sur undefined
   openRows,
   setOpenRows,
   showAllPersons,
   sortKey,
   sortDir,
   onToggleSort,
-  onTreat = () => {},
-  onConsult = () => {},
+  onTreat = () => {}, // ← no-op par défaut
+  onConsult = () => {}, // ← no-op par défaut
 }) => {
   const toggleRow = (id: string) =>
     setOpenRows((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -212,39 +215,28 @@ const DesktopTable: React.FC<Props> = ({
                     </td>
                     <td className="p-3 align-top">
                       <div className="flex gap-3">
-                        {(() => {
-                          // ✅ Actions autorisées par statut
-                          if (t.statut === "Validé") return ["🔄", "🔍"] as const;
-                          // Pour "En traitement" on laisse ✏️ (Traiter) et 🔍 (Consulter)
-                          if (t.statut === "En traitement")
-                            return ["✏️", "🔍"] as const;
-                          // Sinon (À traiter, En suspens, Refusé) : ✏️ et ↪️ + 🔍 si besoin
-                          return ["✏️", "↪️", "🔍"] as const;
-                        })().map((a) => (
-                          <button
-                            key={a}
-                            className="underline text-gray-900 dark:text-gray-100 hover:opacity-90"
-                            title={
-                              a === "🔍"
-                                ? "Consulter"
-                                : a === "🔄"
-                                ? "Reprendre"
-                                : a === "✏️"
-                                ? "Traiter"
-                                : a === "↪️"
-                                ? "Transférer"
-                                : ""
-                            }
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (a === "✏️") onTreat(t);
-                              else if (a === "🔍") onConsult(t);
-                              else console.log(a, t.id);
-                            }}
-                          >
-                            {a}
-                          </button>
-                        ))}
+                        {/* Consulter */}
+                        <button
+                          className="underline text-gray-900 dark:text-gray-100 hover:opacity-90"
+                          title="Consulter"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onConsult(t);
+                          }}
+                        >
+                          Consulter
+                        </button>
+                        {/* Traiter */}
+                        <button
+                          className="underline text-gray-900 dark:text-gray-100 hover:opacity-90"
+                          title="Traiter"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onTreat(t);
+                          }}
+                        >
+                          Traiter
+                        </button>
                       </div>
                     </td>
                   </tr>
