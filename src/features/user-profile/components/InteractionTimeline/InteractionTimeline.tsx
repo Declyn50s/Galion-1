@@ -1,4 +1,3 @@
-//src/features/user-profile/components/InteractionTimeline/InteractionTimeline.tsx
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,8 +21,6 @@ import {
   Inbox,
   Mail,
   FileText,
-  AlertTriangle,
-  RefreshCcw,
   Clock,
   Tag,
   Pencil,
@@ -34,7 +31,7 @@ import InteractionDialog from "@/components/interaction";
 import { useInteractionsStore } from "@/features/interactions/store";
 import type { Interaction } from "@/types/interaction";
 
-/* Types & UI config */
+/* ───────── Types / UI ───────── */
 type InteractionTypeKey =
   | "telephone"
   | "guichet"
@@ -42,6 +39,13 @@ type InteractionTypeKey =
   | "email"
   | "jaxform"
   | "commentaire";
+
+/** On étend pour supporter le filtrage par cible */
+type ExtInteraction = Interaction & {
+  userId?: string;   // id usager (slug)
+  tenantId?: string; // id ménage/dossier locataire
+  scopeId?: string;  // id générique si tu l’utilises ailleurs
+};
 
 const TYPE_CONFIG: Record<
   InteractionTypeKey,
@@ -79,7 +83,7 @@ const TYPE_CONFIG: Record<
   },
 };
 
-/* Utils */
+/* ───────── Utils ───────── */
 const formatDate = (iso?: string) => {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -102,16 +106,19 @@ const initials3 = (s?: string) =>
     .toUpperCase()
     .slice(0, 3);
 
-/* Composant */
+/* ───────── Composant ───────── */
 const InteractionTimeline: React.FC<{ title?: string }> = ({
   title = "💬 Historique des interactions",
 }) => {
-  const { userId } = useParams<{ userId: string }>();
+  // On récupère userId OU tenantId depuis le routeur ~ les deux pages marchent
+  const { userId, tenantId } = useParams<{
+    userId?: string;
+    tenantId?: string;
+  }>();
+  const targetId = userId || tenantId || ""; // id attendu dans les interactions
 
   // Store
-  const interactions = useInteractionsStore(
-    (s) => s.interactions
-  ) as Interaction[];
+  const interactions = useInteractionsStore((s) => s.interactions) as ExtInteraction[];
   const updateInteraction = useInteractionsStore(
     (s) => s.updateInteraction
   ) as (id: string, patch: Partial<Interaction>) => void;
@@ -119,15 +126,24 @@ const InteractionTimeline: React.FC<{ title?: string }> = ({
     (s) => s.removeInteraction
   ) as (id: string) => void;
 
-  // Filtre user + tri desc (si tu as un champ userId dans tes interactions, ajoute le filtre ici)
+  // 🔎 Filtre PAR CIBLE (userId / tenantId / scopeId)
   const items = React.useMemo(() => {
-    const arr = [...(interactions || [])];
-    arr.sort(
+    const list = Array.isArray(interactions) ? interactions : [];
+    const filtered = targetId
+      ? list.filter(
+          (it) =>
+            it.userId === targetId ||
+            it.tenantId === targetId ||
+            it.scopeId === targetId
+        )
+      : list;
+
+    const sorted = [...filtered].sort(
       (a, b) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
-    return arr;
-  }, [interactions]);
+    return sorted;
+  }, [interactions, targetId]);
 
   // Pagination progressive
   const [visible, setVisible] = React.useState(Math.min(5, items.length));
@@ -136,16 +152,15 @@ const InteractionTimeline: React.FC<{ title?: string }> = ({
   }, [items.length]);
 
   // Édition
-  const [editing, setEditing] = React.useState<Interaction | null>(null);
+  const [editing, setEditing] = React.useState<ExtInteraction | null>(null);
 
   return (
     <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
       <CardHeader className="pb-3">
-        <CardTitle className="text-lg"> {title}</CardTitle>
+        <CardTitle className="text-lg">{title}</CardTitle>
       </CardHeader>
 
       <CardContent>
-        {/* Pas de ScrollArea Radix -> simple div pour éviter la boucle d’updates */}
         <div className="max-h-[460px] overflow-auto pr-2">
           <div className="relative">
             <div
@@ -157,7 +172,7 @@ const InteractionTimeline: React.FC<{ title?: string }> = ({
               <AnimatePresence initial={false}>
                 {items.slice(0, visible).map((it) => {
                   const cfg =
-                    TYPE_CONFIG[it.type] ?? TYPE_CONFIG["commentaire"];
+                    TYPE_CONFIG[(it.type as InteractionTypeKey) ?? "commentaire"];
                   const alertish =
                     it.isAlert || (it.observationTags || []).includes("Refus");
 
@@ -177,9 +192,9 @@ const InteractionTimeline: React.FC<{ title?: string }> = ({
                       />
 
                       <div
-                        className={`rounded-lg border bg-white ${
-                          cfg.color
-                        } border-l-4 ${alertish ? "ring-1 ring-red-200" : ""}`}
+                        className={`rounded-lg border bg-white ${cfg.color} border-l-4 ${
+                          alertish ? "ring-1 ring-red-200" : ""
+                        }`}
                       >
                         <div className="flex items-start gap-3 p-3">
                           <div className="mt-0.5 shrink-0 text-slate-600">
@@ -233,7 +248,7 @@ const InteractionTimeline: React.FC<{ title?: string }> = ({
                               </>
                             )}
 
-                            {/* Tags + Options + ObsTags */}
+                            {/* Tags / options / obs tags */}
                             {it.tags?.length ||
                             it.commentOptions?.length ||
                             it.observationTags?.length ? (
@@ -320,7 +335,8 @@ const InteractionTimeline: React.FC<{ title?: string }> = ({
                                 onClick={() => setEditing(it)}
                                 title="Modifier"
                               >
-                                ✏️<Pencil className="h-4 w-4" />
+                                ✏️
+                                <Pencil className="h-4 w-4" />
                               </Button>
 
                               <AlertDialog>
@@ -331,7 +347,8 @@ const InteractionTimeline: React.FC<{ title?: string }> = ({
                                     className="h-8 w-8 text-red-600 hover:text-red-700"
                                     title="Supprimer"
                                   >
-                                   X<Trash2 className="h-4 w-4" />
+                                    ✖️
+                                    <Trash2 className="h-4 w-4" />
                                   </Button>
                                 </AlertDialogTrigger>
                                 <AlertDialogContent>
@@ -386,9 +403,9 @@ const InteractionTimeline: React.FC<{ title?: string }> = ({
         <InteractionDialog
           isOpen={true}
           onClose={() => setEditing(null)}
-          initialType={editing.type}
+          initialType={(editing.type as any) || "commentaire"}
           initialValues={{
-            type: editing.type,
+            type: (editing.type as any) || "commentaire",
             subject: editing.subject,
             customSubject: editing.customSubject,
             comment: editing.comment,

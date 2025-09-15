@@ -25,8 +25,8 @@ const MISSING_DOCS: { id: string; label: string }[] = [
     { id: "preinscription_signee", label: "Formulaire de préinscription dûment rempli et signé" },
 
 // Identité & permis
-{ id: "identite_complete", label: "Papiers d'identité (CI + permis B/C/F valides)" },
-{ id: "permis_non_valide", label: "Permis de séjour non valide ou expiré" },
+{ id: "identite_complete", label: "Pièce d'identité" },
+{ id: "permis_non_valide", label: "Permis B/C/F valide" },
 
 // Travail & revenus
 { id: "contrat_travail", label: "Contrat de travail" },
@@ -60,7 +60,7 @@ const MISSING_DOCS: { id: string; label: string }[] = [
 { id: "taxation_impots_complete", label: "Dernière décision de taxation des impôts (document complet)" },
 { id: "viawork_contrat_lausanne", label: "Contrat de travail à Lausanne (si conditions via travail)" },
 { id: "grossesse_certificat", label: "Certificat de grossesse" },
-{ id: "bail_loyer", label: "Bail à loyer (logement)" },
+{ id: "bail_loyer", label: "Bail à loyer" },
 ];
 
 // Motifs de refus (groupés pour l'UI)
@@ -136,8 +136,8 @@ const [refusDetails, setRefusDetails] = React.useState("");
     const labels = MISSING_DOCS.filter((d) => missingDocs.includes(d.id)).map((d) => d.label);
     const comment =
       labels.length > 0
-        ? `En suspens — documents manquants : ${labels.join(", ")}`
-        : "En suspens — documents manquants (liste vide)";
+        ? `En suspens — : ${labels.join(", ")}`
+        : "En suspens — (liste vide)";
     onPatchStatus({
       statut: "En suspens",
       observation: comment,
@@ -162,7 +162,7 @@ const [refusDetails, setRefusDetails] = React.useState("");
 
   const handleConfirmValider = () => {
     onValidateSave();
-    const comment = "Dossier validé";
+    const comment = "Attestation envoyée";
     onPatchStatus({
       statut: "Validé",
       observation: comment,

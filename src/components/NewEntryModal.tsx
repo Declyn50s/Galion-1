@@ -6,28 +6,13 @@ import {
   Search as SearchIcon,
   Save,
   UploadCloud,
+  UserPlus,
+  UserMinus,
+  ShieldCheck,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
-/*-----------Helper--------------------- */
-
-const todayISO = () => new Date().toISOString().slice(0, 10);
-
-function resetAll() {
-  setNss("");
-  setSearching(false);
-  setReception(todayISO());
-  setVoie("Guichet");
-  setMotif("Inscription");
-  setPrioritaire(false);
-  setPeople([]); // vide le ménage
-  setAddr({ adresse: "", npa: "", ville: "" });
-  setObservation("");
-  setAttachments([]);
-  setDragOver(false);
-  setError(null);
-}
-
-/* ---------------- Types alignés avec Journal.tsx ---------------- */
+/* ================== Types alignés avec Journal.tsx ================== */
 export type Utilisateur = {
   titre: "M." | "Mme" | string;
   nom: string;
@@ -53,7 +38,7 @@ export type Tache = {
     | "Résiliation"
     | "Préfecture"
     | "Gérance";
-  voie: "Guichet" | "Courrier" | "Email" | "Jaxform" | "Collaborateur";
+  voie: "Guichet" | "Courrier" | "Email" | "Jaxform";
   par: string;
   observation: string;
   statut: "À traiter" | "En traitement" | "En suspens" | "Validé" | "Refusé";
@@ -85,13 +70,14 @@ export type NewEntryModalProps = {
   onSaved: (t: Tache) => void;
 };
 
-/* ---------------- Utils ---------------- */
+/* ================== Utils ================== */
 type PeopleJsonRecord = { nss: string } & Utilisateur;
 type PeopleJson = PeopleJsonRecord[] | { people: PeopleJsonRecord[] };
 
-function normalizeNss(n: string) {
-  return (n || "").replace(/[^\d]/g, "");
-}
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const normalizeNss = (n: string) => (n || "").replace(/[^\d]/g, "");
+const isLikelyNSS = (s: string) => normalizeNss(s).length >= 11;
+
 function normalizeIsoDate(s: string): string {
   if (!s) return "";
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
@@ -106,12 +92,10 @@ function normalizeIsoDate(s: string): string {
 }
 function normalizeTitre(t: string): "M." | "Mme" {
   const raw = (t || "").toLowerCase();
-  // symboles/abréviations fréquents
   if (/[♀]|(^|\b)(f|fem|femme|female|mme|madame|mrs|ms)(\b|\.|$)/i.test(raw))
     return "Mme";
   if (/[♂]|(^|\b)(m(?!me)\b|mr|homme|male|monsieur)(\b|\.|$)/i.test(raw))
     return "M.";
-  // fallback selon première lettre
   return raw.trim().startsWith("f") ? "Mme" : "M.";
 }
 function ensureValidUser(u: Partial<Utilisateur>): Utilisateur {
@@ -128,7 +112,7 @@ function ensureValidUser(u: Partial<Utilisateur>): Utilisateur {
     nbEnf: Number.isFinite(u.nbEnf as any) ? (u.nbEnf as number) : 0,
   };
 }
-function ageFromISO(iso: string): number {
+const ageFromISO = (iso: string): number => {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return 0;
   const now = new Date();
@@ -136,9 +120,24 @@ function ageFromISO(iso: string): number {
   const m = now.getMonth() - d.getMonth();
   if (m < 0 || (m === 0 && now.getDate() < d.getDate())) a--;
   return a;
+};
+
+/** Parsage "Nom Prénom JJ.MM.AAAA" (ou YYYY-MM-DD). */
+function parseNameDob(input: string): { nom: string; prenom: string; dob: string } | null {
+  const s = input.trim();
+  if (!s) return null;
+  const tokens = s.split(/\s+/);
+  const last = tokens[tokens.length - 1] || "";
+  const dateIso = normalizeIsoDate(last);
+  if (!dateIso) return null;
+  const nameTokens = tokens.slice(0, -1);
+  if (nameTokens.length < 1) return null;
+  const nom = (nameTokens[0] || "").toUpperCase();
+  const prenom = (nameTokens.slice(1).join(" ") || "").replace(/\s+/g, " ");
+  return { nom, prenom, dob: dateIso };
 }
 
-/* ---------------- Mocks compatibles (si besoin) ---------------- */
+/* ================== Exports mocks (compat Journal.tsx) ================== */
 export async function mockSearchUserByNSS(nss: string): Promise<Utilisateur[]> {
   try {
     const res = await fetch("/people.json", { cache: "no-store" });
@@ -155,7 +154,6 @@ export async function mockSearchUserByNSS(nss: string): Promise<Utilisateur[]> {
     return [];
   }
 }
-
 export async function mockSaveEntry(payload: SaveEntryPayload): Promise<Tache> {
   await new Promise((r) => setTimeout(r, 250));
   const now = new Date();
@@ -182,7 +180,18 @@ export async function mockSaveEntry(payload: SaveEntryPayload): Promise<Tache> {
   };
 }
 
-/* ---------------- Composant ---------------- */
+/* ================== Composant ================== */
+/** Personne en UI (adulte uniquement ici) */
+type UIUser = Utilisateur & {
+  email?: string;
+  curateur?: boolean;
+  nss?: string;
+};
+const uiKey = (u: Partial<UIUser>) =>
+  `${(u.nom || "").trim().toUpperCase()}|${(u.prenom || "")
+    .trim()
+    .toUpperCase()}|${normalizeIsoDate(u.dateNaissance || "")}`;
+
 export default function NewEntryModal({
   open,
   onOpenChange,
@@ -191,139 +200,158 @@ export default function NewEntryModal({
   agentInitials,
   onSaved,
 }: NewEntryModalProps) {
-  // NSS
-  const [nss, setNss] = useState("");
+  /* ---------- Barre de recherche unique ---------- */
+  const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
+  const [searchAttempted, setSearchAttempted] = useState(false);
+  const [searchResults, setSearchResults] = useState<Utilisateur[]>([]);
 
-  // Métadonnées
-  const [reception, setReception] = useState<string>(
-    new Date().toISOString().slice(0, 10)
-  );
+  /* ---------- Métadonnées ---------- */
+  const [reception, setReception] = useState<string>(todayISO());
   const [voie, setVoie] = useState<Tache["voie"]>("Guichet");
   const [motif, setMotif] = useState<Tache["motif"]>("Inscription");
   const [prioritaire, setPrioritaire] = useState(false);
 
-  // Ménage (personnes UI = adultes + enfants, mais seuls les adultes seront publiés)
-  const [people, setPeople] = useState<Utilisateur[]>([]);
-  const minorsCount = useMemo(
-    () =>
-      people.reduce(
-        (n, p) => n + (ageFromISO(p.dateNaissance) < 18 ? 1 : 0),
-        0
-      ),
+  /* ---------- Ménage ---------- */
+  const [people, setPeople] = useState<UIUser[]>([]); // ADULTES uniquement
+  const adultsCount = useMemo(
+    () => people.reduce((n, p) => n + (ageFromISO(p.dateNaissance) >= 18 ? 1 : 0), 0),
     [people]
   );
-  const totalHousehold = people.length; // adultes + enfants (pour le résumé et nbPers publié)
 
-  // Adresse ménage (après personnes)
+  // Nouveaux compteurs “enfants” (pas de fiches, juste des nombres)
+  const [childMinors, setChildMinors] = useState(0);
+  const [childMajors, setChildMajors] = useState(0);
+
+  const totalHousehold = adultsCount + childMinors + childMajors;
+
+  /* ---------- Adresse ménage ---------- */
   const [addr, setAddr] = useState({ adresse: "", npa: "", ville: "" });
 
-  // Observation + tags (mots bruts)
-  const TAGS = ["Refus", "Incomplet", "Dérogation"] as const;
+  /* ---------- Observation + tags ---------- */
+  const QUICK_TAGS = ["Refus", "Incomplet", "Dérogation"] as const;
   const [observation, setObservation] = useState("");
 
-  // Fichiers
+  // Collaborateurs à notifier (@tag)
+  const [collabInput, setCollabInput] = useState("");
+  const [collabTags, setCollabTags] = useState<string[]>([]);
+
+  /* ---------- Fichiers ---------- */
   const [attachments, setAttachments] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // État
-  const [saving, setSaving] = useState(false);
+  /* ---------- Erreurs ---------- */
   const [error, setError] = useState<string | null>(null);
 
+  /* ---------- Effet reset à l’ouverture ---------- */
   useEffect(() => {
     if (!open) return;
-    setSearching(false);
-    setError(null);
+    resetAll();
   }, [open]);
 
-  const isNssValid = useMemo(() => normalizeNss(nss).length >= 11, [nss]);
-
-  // --- Recherche & ajout (append + dédoublonnage par Nom|Prénom|Naissance) ---
-  async function addFromNSS() {
-    if (!isNssValid || searching) return;
-    try {
-      setSearching(true);
-      const found = await searchUserByNSS(nss);
-      if (found.length === 0) return;
-      setPeople((prev) => mergePeople(prev, found));
-      // Init adresse ménage si vide
-      if (!addr.adresse && !addr.npa && !addr.ville) {
-        const f = found[0];
-        setAddr({
-          adresse: f.adresse || "",
-          npa: f.npa || "",
-          ville: f.ville || "",
-        });
-      }
-    } catch {
-      setError("Recherche NSS impossible.");
-    } finally {
-      setSearching(false);
-    }
+  /* ---------- Helpers ménage ---------- */
+  function sortByAgeDesc(list: UIUser[]) {
+    return [...list].sort(
+      (a, b) =>
+        new Date(a.dateNaissance).getTime() - new Date(b.dateNaissance).getTime()
+    ); // plus âgé d’abord
   }
 
-  function mergePeople(prev: Utilisateur[], next: Utilisateur[]) {
-    const byKey = new Map<string, Utilisateur>();
-    const all = [...prev, ...next.map((n) => ensureValidUser(n))];
-    for (const u of all) byKey.set(personKey(u), ensureValidUser(u));
-    return Array.from(byKey.values());
-  }
-  function personKey(u: Partial<Utilisateur>): string {
-    const nom = (u.nom || "").trim().toUpperCase();
-    const prenom = (u.prenom || "").trim().toUpperCase();
-    const dob = normalizeIsoDate(u.dateNaissance || "");
-    return `${nom}|${prenom}|${dob}`;
-  }
-
-  // --- Ajouts rapides (placés en bas de la liste) ---
-  function addBlankAdult() {
-    setPeople((prev) => [
+  function mergePeople(prev: UIUser[], next: (UIUser | Utilisateur)[]) {
+    const byKey = new Map<string, UIUser>();
+    const all: UIUser[] = [
       ...prev,
-      ensureValidUser({ titre: "M.", dateNaissance: "1990-01-01" }),
-    ]);
-  }
-  function addMinorChild() {
-    setPeople((prev) => [
-      ...prev,
-      ensureValidUser({ titre: "M.", dateNaissance: "2012-01-01" }),
-    ]); // <18
-  }
-  function addAdultChild() {
-    setPeople((prev) => [
-      ...prev,
-      ensureValidUser({ titre: "M.", dateNaissance: "2000-01-01" }),
-    ]); // >=18
+      ...next.map((n) => ({
+        ...ensureValidUser(n as any),
+        email: (n as any).email || "",
+        curateur: !!(n as any).curateur,
+        nss: (n as any).nss || undefined,
+      })),
+    ];
+    for (const u of all) byKey.set(uiKey(u), { ...u });
+    return sortByAgeDesc(Array.from(byKey.values()));
   }
 
-  // --- Edition / suppression ---
-  function updatePerson(i: number, patch: Partial<Utilisateur>) {
-    setPeople((prev) =>
-      prev.map((p, idx) =>
-        idx === i ? ensureValidUser({ ...p, ...patch }) : p
-      )
-    );
+  function addUIUser(u: Partial<UIUser>) {
+    const base = ensureValidUser(u);
+    const enriched: UIUser = {
+      ...base,
+      email: u.email || "",
+      curateur: !!u.curateur,
+      nss: u.nss,
+    };
+    setPeople((prev) => mergePeople(prev, [enriched]));
   }
+
+  function updatePerson(i: number, patch: Partial<UIUser>) {
+    setPeople((prev) => {
+      const next = prev.map((p, idx) => (idx === i ? { ...p, ...patch } : p));
+      return sortByAgeDesc(next);
+    });
+  }
+
   function removePerson(i: number) {
     setPeople((prev) => prev.filter((_, idx) => idx !== i));
   }
 
-  // --- Tags → ajout/ retrait de mot brut dans la note ---
-  function onTagToggle(tag: string) {
+  /* ---------- Barre unique : rechercher/ajouter ---------- */
+  async function onSearchOrAdd() {
+    setError(null);
+    setSearchAttempted(true);
+    setSearchResults([]);
+
+    if (!query.trim()) return;
+
+    if (isLikelyNSS(query)) {
+      try {
+        setSearching(true);
+        const found = await searchUserByNSS(query);
+        setSearchResults(found);
+        // Si trouvé: afficher “Reprendre”
+        // Si non trouvé: proposer saisie minimale
+      } catch {
+        setError("Recherche NSS impossible.");
+      } finally {
+        setSearching(false);
+      }
+      return;
+    }
+
+    // Cas Nom Prénom Date -> la saisie minimale s’affiche en-dessous (préremplie)
+  }
+
+  /* ---------- Ajouts/Retraits rapides d’enfants (compteurs) ---------- */
+  const addMinor = () => setChildMinors((n) => n + 1);
+  const removeMinor = () => setChildMinors((n) => Math.max(0, n - 1));
+  const addMajorChild = () => setChildMajors((n) => n + 1);
+  const removeMajorChild = () => setChildMajors((n) => Math.max(0, n - 1));
+
+  /* ---------- Tags rapides et collaborateurs ---------- */
+  function onQuickTagToggle(tag: string) {
     const has = observation.toLowerCase().includes(tag.toLowerCase());
     if (has) {
       const re = new RegExp(`\\b${tag}\\b`, "gi");
-      const next = observation
-        .replace(re, "")
-        .replace(/\s{2,}/g, " ")
-        .trim();
+      const next = observation.replace(re, "").replace(/\s{2,}/g, " ").trim();
       setObservation(next);
     } else {
       setObservation((prev) => (prev ? `${prev} ${tag}` : tag));
     }
   }
 
-  // --- Fichiers ---
+  function addCollabTag() {
+    const t = (collabInput || "").trim();
+    if (!t) return;
+    const formatted = t.startsWith("@") ? t : `@${t}`;
+    if (!collabTags.includes(formatted)) {
+      setCollabTags((prev) => [...prev, formatted]);
+    }
+    setCollabInput("");
+  }
+  function removeCollabTag(tag: string) {
+    setCollabTags((prev) => prev.filter((t) => t !== tag));
+  }
+
   function onFilesSelected(files: FileList | null) {
     if (!files) return;
     const arr = Array.from(files);
@@ -335,49 +363,71 @@ export default function NewEntryModal({
     setAttachments((prev) => [...prev, ...ok]);
   }
 
-  // --- Publication ---
-  const formValid =
-    isNssValid && reception && voie && motif && totalHousehold > 0;
+  function resetAll() {
+    setQuery("");
+    setSearching(false);
+    setSearchAttempted(false);
+    setSearchResults([]);
+    setReception(todayISO());
+    setVoie("Guichet");
+    setMotif("Inscription");
+    setPrioritaire(false);
+    setPeople([]); // adultes seulement
+    setChildMinors(0);
+    setChildMajors(0);
+    setAddr({ adresse: "", npa: "", ville: "" });
+    setObservation("");
+    setCollabInput("");
+    setCollabTags([]);
+    setAttachments([]);
+    setDragOver(false);
+    setError(null);
+  }
 
+  /* ---------- Form minimal auto-prérempli à partir de la query ---------- */
+  const parsedMinimal = useMemo(() => parseNameDob(query || ""), [query]);
+
+  /* ---------- Validation de publication ---------- */
+  const formValid = reception && voie && motif && adultsCount > 0; // au moins 1 adulte
+
+  /* ---------- Publication ---------- */
   async function publish() {
     if (!formValid) return;
     setError(null);
-    setSaving(true);
     try {
-      const adults = people.filter((p) => ageFromISO(p.dateNaissance) >= 18);
-
-      // Propager adresse ménage + compteurs aux ADULTES UNIQUEMENT
-      const utilisateursPublies = adults.map((p) => ({
-        ...p,
-        titre: normalizeTitre(p.titre || "M."),
+      // Adultes publiés
+      const utilisateursPublies: Utilisateur[] = people.map((p) => ({
+        ...ensureValidUser(p),
         adresse: addr.adresse || "",
         npa: addr.npa || "",
         ville: addr.ville || "",
-        nbPers: totalHousehold, // adultes + enfants
-        nbEnf: minorsCount, // seulement enfants
-        dateNaissance:
-          normalizeIsoDate(p.dateNaissance || "2000-01-01") || "2000-01-01",
+        nbPers: totalHousehold, // adultes + enfants (mineurs + majeurs)
+        nbEnf: childMinors, // mineurs uniquement
       }));
 
+      // Injecter les @collab dans l’observation
+      const collabNote =
+        collabTags.length > 0 ? ` [${collabTags.join(", ")}]` : "";
+      const fullObservation = `${(observation || "").trim()}${collabNote}`.trim();
+
       const t = await saveEntry({
-        nss,
+        nss: isLikelyNSS(query) ? query : "",
         reception,
         motif,
         voie,
         par: agentInitials,
-        observation: observation.trim(),
+        observation: fullObservation,
         statut: "À traiter",
         prioritaire,
-        utilisateurs: utilisateursPublies, // <<< enfants exclus
+        utilisateurs: utilisateursPublies,
         attachments,
       });
 
       onSaved(t);
       onOpenChange(false);
+      resetAll();
     } catch {
       setError("Échec de la publication.");
-    } finally {
-      setSaving(false);
     }
   }
 
@@ -390,18 +440,16 @@ export default function NewEntryModal({
       aria-modal="true"
       aria-labelledby="new-entry-title"
     >
-      <div
-        className="absolute inset-0 bg-black/40"
-        onClick={() => onOpenChange(false)}
-      />
+      <div className="absolute inset-0 bg-black/40" onClick={() => onOpenChange(false)} />
 
-      <div className="relative w-full max-w-2xl rounded-xl bg-white dark:bg-neutral-900 shadow-xl flex flex-col max-h-[85vh]">
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="relative w-full max-w-3xl rounded-xl bg-white dark:bg-neutral-900 shadow-xl flex flex-col max-h-[90vh]"
+      >
         {/* Header */}
         <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
-          <h2
-            id="new-entry-title"
-            className="text-base md:text-lg font-semibold"
-          >
+          <h2 id="new-entry-title" className="text-base md:text-lg font-semibold">
             Nouvelle entrée
           </h2>
           <button
@@ -413,177 +461,321 @@ export default function NewEntryModal({
           </button>
         </div>
 
-        {/* Body scrollable */}
+        {/* Body */}
         <div className="px-4 pt-3 pb-4 overflow-y-auto flex-1 space-y-4">
-          {/* NSS (➕) */}
-          <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-3 grid md:grid-cols-3 gap-2 items-end">
-            <div className="md:col-span-2">
-              <label className="text-xs text-gray-600 dark:text-gray-400">
-                NSS (recherche)
-              </label>
-              <div className="relative">
+          {/* Barre unique : NSS ou "Nom Prénom JJ.MM.AAAA" */}
+          <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-3">
+            <label className="text-xs text-gray-600 dark:text-gray-400">
+              NSS ou “Nom Prénom JJ.MM.AAAA”
+            </label>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
                 <SearchIcon className="absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
                 <input
-                  value={nss}
-                  onChange={(e) => setNss(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && addFromNSS()}
-                  placeholder="756.1234.5678.97"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && onSearchOrAdd()}
+                  placeholder={`756.1234.5678.97  ou  MARTIN Sophie 01.01.1990`}
                   className="w-full h-9 pl-8 rounded border border-gray-300 bg-white dark:bg-neutral-900 px-2 text-sm"
                 />
               </div>
-            </div>
-            <div className="flex gap-2 md:justify-end">
-              {/* Bouton NSS = emoji ➕ seul */}
               <button
                 type="button"
-                onClick={addFromNSS}
-                disabled={!isNssValid || searching}
-                className="h-9 w-9 mt-5 md:mt-0 rounded border text-lg flex items-center justify-center disabled:opacity-50"
-                title={!isNssValid ? "NSS invalide" : "Ajouter depuis NSS"}
+                onClick={onSearchOrAdd}
+                disabled={searching || !query.trim()}
+                className="h-9 px-3 rounded bg-gray-900 text-white text-sm inline-flex items-center gap-2 disabled:opacity-50"
+                title="Rechercher / Ajouter"
               >
-                {searching ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  "➕"
-                )}
+                {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <SearchIcon className="h-4 w-4" />}
+                Rechercher
               </button>
             </div>
-          </div>
 
-          {/* Liste personnes */}
-          <div className="space-y-2">
-            {people.length === 0 && (
-              <div className="text-sm text-gray-600 dark:text-gray-400">
-                Aucun membre. Rechercher un NSS (➕) ou ajouter manuellement en
-                bas.
-              </div>
-            )}
-            {people.map((p, i) => (
-              <div
-                key={i}
-                className="rounded-lg border border-gray-200 dark:border-gray-800 p-3 grid md:grid-cols-5 gap-2"
-              >
-                <select
-                  className="border px-2 h-9 rounded text-sm"
-                  value={p.titre}
-                  onChange={(e) =>
-                    updatePerson(i, { titre: e.target.value as "M." | "Mme" })
-                  }
-                  aria-label="Sexe"
+            {/* Résultats NSS trouvés */}
+            <AnimatePresence initial={false}>
+              {searchAttempted && isLikelyNSS(query) && searchResults.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="mt-3 rounded-md border p-3 bg-slate-50 dark:bg-neutral-800"
                 >
-                  <option value="M.">♂️ M</option>
-                  <option value="Mme">♀️ F</option>
-                </select>
-                <input
-                  className="border px-2 h-9 rounded text-sm"
-                  placeholder="Nom"
-                  value={p.nom}
-                  onChange={(e) => updatePerson(i, { nom: e.target.value })}
-                />
-                <input
-                  className="border px-2 h-9 rounded text-sm"
-                  placeholder="Prénom"
-                  value={p.prenom}
-                  onChange={(e) => updatePerson(i, { prenom: e.target.value })}
-                />
-                <input
-                  type="date"
-                  className="border px-2 h-9 rounded text-sm"
-                  value={p.dateNaissance}
-                  onChange={(e) =>
-                    updatePerson(i, { dateNaissance: e.target.value })
-                  }
-                  title="YYYY-MM-DD"
-                />
-                <div className="flex items-center justify-end">
-                  <button
-                    className="text-lg"
-                    onClick={() => removePerson(i)}
-                    title="Supprimer"
+                  <div className="text-xs font-medium mb-2">Personnes trouvées :</div>
+                  <div className="space-y-2">
+                    {searchResults.map((p, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center justify-between gap-2 bg-white dark:bg-neutral-900 rounded border px-2 py-2"
+                      >
+                        <div className="text-sm">
+                          <span className="font-medium">{p.nom.toUpperCase()} {p.prenom}</span>{" "}
+                          — {p.dateNaissance} • {p.adresse}, {p.npa} {p.ville}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            addUIUser({ ...p, nss: normalizeNss(query) });
+                            // Pré-remplir adresse ménage si vide
+                            if (!addr.adresse && !addr.npa && !addr.ville) {
+                              setAddr({ adresse: p.adresse, npa: p.npa, ville: p.ville });
+                            }
+                          }}
+                          className="h-8 px-2 rounded border text-xs"
+                        >
+                          Reprendre
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Saisie minimale si non trouvé ou cas “Nom Prénom Date” */}
+            {(searchAttempted && isLikelyNSS(query) && searchResults.length === 0) ||
+            (!!parsedMinimal && !isLikelyNSS(query)) ? (
+              <motion.div
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-3 rounded-md border p-3 bg-slate-50 dark:bg-neutral-800"
+              >
+                <div className="text-xs font-medium mb-2">Saisie minimale (adulte)</div>
+                <div className="grid md:grid-cols-6 gap-2">
+                  <select
+                    className="border px-2 h-9 rounded text-sm"
+                    defaultValue="M."
+                    id="min-titre"
                   >
-                    ❌
+                    <option value="M.">♂️ M</option>
+                    <option value="Mme">♀️ F</option>
+                  </select>
+                  <input
+                    id="min-nom"
+                    className="border px-2 h-9 rounded text-sm md:col-span-2"
+                    placeholder="NOM"
+                    defaultValue={parsedMinimal?.nom || ""}
+                  />
+                  <input
+                    id="min-prenom"
+                    className="border px-2 h-9 rounded text-sm md:col-span-2"
+                    placeholder="Prénom"
+                    defaultValue={parsedMinimal?.prenom || ""}
+                  />
+                  <input
+                    id="min-dob"
+                    type="date"
+                    className="border px-2 h-9 rounded text-sm"
+                    defaultValue={parsedMinimal?.dob || ""}
+                    title="YYYY-MM-DD"
+                  />
+                </div>
+
+                <div className="grid md:grid-cols-3 gap-2 mt-2 items-center">
+                  <input
+                    id="min-email"
+                    className="border px-2 h-9 rounded text-sm md:col-span-2"
+                    placeholder="Email (optionnel)"
+                  />
+                  <label
+                    htmlFor="min-curateur"
+                    className="inline-flex items-center gap-2 text-sm px-2"
+                  >
+                    <input id="min-curateur" type="checkbox" className="h-4 w-4" />
+                    <ShieldCheck className="h-4 w-4" /> Curateur
+                  </label>
+                </div>
+
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    className="h-8 px-3 rounded border text-sm"
+                    onClick={() => {
+                      const titre = (document.getElementById("min-titre") as HTMLSelectElement)
+                        ?.value as "M." | "Mme";
+                      const nom = (document.getElementById("min-nom") as HTMLInputElement)?.value || "";
+                      const prenom =
+                        (document.getElementById("min-prenom") as HTMLInputElement)?.value || "";
+                      const dob = normalizeIsoDate(
+                        (document.getElementById("min-dob") as HTMLInputElement)?.value || ""
+                      );
+                      const email =
+                        (document.getElementById("min-email") as HTMLInputElement)?.value || "";
+                      const curateur = !!(document.getElementById("min-curateur") as HTMLInputElement)
+                        ?.checked;
+
+                      if (!nom || !prenom || !dob) {
+                        setError("Compléter NOM, Prénom et Date de naissance.");
+                        return;
+                      }
+                      addUIUser({ titre, nom, prenom, dateNaissance: dob, email, curateur });
+                    }}
+                  >
+                    Ajouter
                   </button>
                 </div>
-              </div>
-            ))}
-
-            {/* Boutons d'ajout sous la liste */}
-            <div className="flex flex-wrap gap-2 pt-1">
-              <button
-                type="button"
-                onClick={addBlankAdult}
-                className="h-9 rounded border px-2 text-sm"
-              >
-                + Personne
-              </button>
-              <button
-                type="button"
-                onClick={addMinorChild}
-                className="h-9 rounded border px-2 text-sm"
-                title="Ajouter enfant mineur"
-              >
-                + Enfant (−18)
-              </button>
-              <button
-                type="button"
-                onClick={addAdultChild}
-                className="h-9 rounded border px-2 text-sm"
-                title="Ajouter enfant majeur"
-              >
-                + Enfant (+18)
-              </button>
-            </div>
+              </motion.div>
+            ) : null}
           </div>
 
-          {/* Adresse du ménage (APRÈS les personnes) */}
+          {/* Liste des adultes + actions rapides enfants */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="text-sm text-gray-600 dark:text-gray-400">
+                Ménage — <b>{totalHousehold}</b> pers. • <b>{adultsCount}</b> adultes •{" "}
+                <b>{childMajors}</b> enfants majeurs • <b>{childMinors}</b> enfants mineurs
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={addMinor}
+                  className="h-8 px-2 rounded border text-xs inline-flex items-center gap-1"
+                  title="Ajouter enfant mineur"
+                >
+                  <UserPlus className="h-3.5 w-3.5" /> Enfant (−18)
+                </button>
+                <button
+                  type="button"
+                  onClick={removeMinor}
+                  className="h-8 px-2 rounded border text-xs inline-flex items-center gap-1"
+                  title="Retirer enfant mineur"
+                >
+                  <UserMinus className="h-3.5 w-3.5" /> Enfant (−18)
+                </button>
+                <button
+                  type="button"
+                  onClick={addMajorChild}
+                  className="h-8 px-2 rounded border text-xs inline-flex items-center gap-1"
+                  title="Ajouter enfant majeur"
+                >
+                  <UserPlus className="h-3.5 w-3.5" /> Enfant (+18)
+                </button>
+                <button
+                  type="button"
+                  onClick={removeMajorChild}
+                  className="h-8 px-2 rounded border text-xs inline-flex items-center gap-1"
+                  title="Retirer enfant majeur"
+                >
+                  <UserMinus className="h-3.5 w-3.5" /> Enfant (+18)
+                </button>
+              </div>
+            </div>
+
+            <AnimatePresence initial={false}>
+              {people.length === 0 && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-sm text-gray-600 dark:text-gray-400"
+                >
+                  Aucun adulte. Utilise la barre ci-dessus pour rechercher/ajouter.
+                </motion.div>
+              )}
+
+              {people.map((p, i) => (
+                <motion.div
+                  key={uiKey(p)}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="rounded-lg border border-gray-200 dark:border-gray-800 p-3 grid md:grid-cols-6 gap-2 items-center"
+                >
+                  <select
+                    className="border px-2 h-9 rounded text-sm"
+                    value={p.titre}
+                    onChange={(e) => updatePerson(i, { titre: e.target.value as "M." | "Mme" })}
+                    aria-label="Sexe"
+                  >
+                    <option value="M.">♂️ M</option>
+                    <option value="Mme">♀️ F</option>
+                  </select>
+
+                  <input
+                    className="border px-2 h-9 rounded text-sm"
+                    placeholder="NOM"
+                    value={p.nom}
+                    onChange={(e) => updatePerson(i, { nom: e.target.value.toUpperCase() })}
+                  />
+                  <input
+                    className="border px-2 h-9 rounded text-sm"
+                    placeholder="Prénom"
+                    value={p.prenom}
+                    onChange={(e) => updatePerson(i, { prenom: e.target.value })}
+                  />
+                  <input
+                    type="date"
+                    className="border px-2 h-9 rounded text-sm"
+                    value={p.dateNaissance}
+                    onChange={(e) => updatePerson(i, { dateNaissance: normalizeIsoDate(e.target.value) })}
+                    title="YYYY-MM-DD"
+                  />
+                  <input
+                    className="border px-2 h-9 rounded text-sm"
+                    placeholder="Email (optionnel)"
+                    value={p.email || ""}
+                    onChange={(e) => updatePerson(i, { email: e.target.value })}
+                  />
+                  <label className="inline-flex items-center gap-2 justify-center">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={!!p.curateur}
+                      onChange={(e) => updatePerson(i, { curateur: e.target.checked })}
+                    />
+                    <span className="text-xs inline-flex items-center gap-1">
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      Curateur
+                    </span>
+                  </label>
+
+                  <div className="md:col-span-6 flex justify-end">
+                    <button
+                      className="text-lg"
+                      onClick={() => removePerson(i)}
+                      title="Supprimer"
+                    >
+                      ❌
+                    </button>
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
+
+          {/* Adresse du ménage */}
           <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-3 grid md:grid-cols-3 gap-2">
             <div className="md:col-span-3">
-              <label className="text-xs text-gray-600 dark:text-gray-400">
-                Adresse du ménage
-              </label>
+              <label className="text-xs text-gray-600 dark:text-gray-400">Adresse du ménage</label>
               <input
                 className="w-full h-9 border rounded px-2 bg-white dark:bg-neutral-900 text-sm"
                 placeholder="Rue, n°"
                 value={addr.adresse}
-                onChange={(e) =>
-                  setAddr((p) => ({ ...p, adresse: e.target.value }))
-                }
+                onChange={(e) => setAddr((p) => ({ ...p, adresse: e.target.value }))}
               />
             </div>
             <div>
-              <label className="text-xs text-gray-600 dark:text-gray-400">
-                NPA
-              </label>
+              <label className="text-xs text-gray-600 dark:text-gray-400">NPA</label>
               <input
                 className="w-full h-9 border rounded px-2 bg-white dark:bg-neutral-900 text-sm"
                 placeholder="1000"
                 value={addr.npa}
-                onChange={(e) =>
-                  setAddr((p) => ({ ...p, npa: e.target.value }))
-                }
+                onChange={(e) => setAddr((p) => ({ ...p, npa: e.target.value }))}
               />
             </div>
             <div className="md:col-span-2">
-              <label className="text-xs text-gray-600 dark:text-gray-400">
-                Ville
-              </label>
+              <label className="text-xs text-gray-600 dark:text-gray-400">Ville</label>
               <input
                 className="w-full h-9 border rounded px-2 bg-white dark:bg-neutral-900 text-sm"
                 placeholder="Lausanne"
                 value={addr.ville}
-                onChange={(e) =>
-                  setAddr((p) => ({ ...p, ville: e.target.value }))
-                }
+                onChange={(e) => setAddr((p) => ({ ...p, ville: e.target.value }))}
               />
             </div>
           </div>
 
-          {/* Métadonnées + priorité (❗) */}
+          {/* Métadonnées + priorité */}
           <div className="grid md:grid-cols-4 gap-2">
             <div>
-              <label className="text-xs text-gray-600 dark:text-gray-400">
-                Réception
-              </label>
+              <label className="text-xs text-gray-600 dark:text-gray-400">Réception</label>
               <input
                 type="date"
                 className="w-full h-9 border rounded px-2 bg-white dark:bg-neutral-900 text-sm"
@@ -592,21 +784,13 @@ export default function NewEntryModal({
               />
             </div>
             <div>
-              <label className="text-xs text-gray-600 dark:text-gray-400">
-                Voie
-              </label>
+              <label className="text-xs text-gray-600 dark:text-gray-400">Voie</label>
               <select
                 className="w-full h-9 border rounded px-2 bg-white dark:bg-neutral-900 text-sm"
                 value={voie}
                 onChange={(e) => setVoie(e.target.value as Tache["voie"])}
               >
-                {[
-                  "Guichet",
-                  "Courrier",
-                  "Email",
-                  "Jaxform",
-                  "Collaborateur",
-                ].map((v) => (
+                {["🏢 Guichet", "📮 Courrier", "📧 Email", "💻 Jaxform"].map((v) => (
                   <option key={v} value={v}>
                     {v}
                   </option>
@@ -614,22 +798,20 @@ export default function NewEntryModal({
               </select>
             </div>
             <div>
-              <label className="text-xs text-gray-600 dark:text-gray-400">
-                Motif
-              </label>
+              <label className="text-xs text-gray-600 dark:text-gray-400">Motif</label>
               <select
                 className="w-full h-9 border rounded px-2 bg-white dark:bg-neutral-900 text-sm"
                 value={motif}
                 onChange={(e) => setMotif(e.target.value as Tache["motif"])}
               >
                 {[
-                  "Inscription",
-                  "Renouvellement",
-                  "Mise à jour",
-                  "Contrôle",
-                  "Résiliation",
-                  "Préfecture",
-                  "Gérance",
+                  "📝 Inscription",
+                  "🔄 Renouvellement",
+                  "✏️ Mise à jour",
+                  "🔍 Contrôle",
+                  "❌ Résiliation",
+                  "⚖️ Préfecture",
+                  "🏠 Gérance",
                 ].map((m) => (
                   <option key={m} value={m}>
                     {m}
@@ -638,10 +820,7 @@ export default function NewEntryModal({
               </select>
             </div>
             <div className="flex items-end">
-              <label
-                className="inline-flex items-center gap-2 text-lg"
-                title="Priorité"
-              >
+              <label className="inline-flex items-center gap-2 text-lg" title="Priorité">
                 <input
                   type="checkbox"
                   className="h-4 w-4"
@@ -653,21 +832,17 @@ export default function NewEntryModal({
             </div>
           </div>
 
-          {/* Tags + Observation */}
+          {/* Tags rapides + Observation */}
           <div>
-            <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">
-              Tags rapides
-            </div>
+            <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">Tags rapides</div>
             <div className="flex flex-wrap gap-2 mb-2">
-              {TAGS.map((tag) => {
-                const active = observation
-                  .toLowerCase()
-                  .includes(tag.toLowerCase());
+              {QUICK_TAGS.map((tag) => {
+                const active = observation.toLowerCase().includes(tag.toLowerCase());
                 return (
                   <button
                     key={tag}
                     type="button"
-                    onClick={() => onTagToggle(tag)}
+                    onClick={() => onQuickTagToggle(tag)}
                     className={`px-2 py-1 rounded text-xs border transition ${
                       active
                         ? "bg-gray-900 text-white border-gray-900"
@@ -680,7 +855,52 @@ export default function NewEntryModal({
                 );
               })}
             </div>
-            <label className="text-xs text-gray-600 dark:text-gray-400">
+
+            {/* Collaborateurs à notifier */}
+            <div className="mt-3">
+              <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">
+                Collaborateurs à notifier (tags)
+              </div>
+              <div className="flex gap-2">
+                <input
+                  className="flex-1 h-9 border rounded px-2 bg-white dark:bg-neutral-900 text-sm"
+                  placeholder="@initiales ou nom"
+                  value={collabInput}
+                  onChange={(e) => setCollabInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && addCollabTag()}
+                />
+                <button
+                  type="button"
+                  className="h-9 px-3 rounded border text-sm"
+                  onClick={addCollabTag}
+                  disabled={!collabInput.trim()}
+                >
+                  Ajouter
+                </button>
+              </div>
+              {collabTags.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {collabTags.map((t) => (
+                    <span
+                      key={t}
+                      className="inline-flex items-center gap-2 px-2 py-1 rounded bg-slate-100 text-slate-700 text-xs"
+                    >
+                      {t}
+                      <button
+                        type="button"
+                        className="text-red-600"
+                        onClick={() => removeCollabTag(t)}
+                        title="Retirer"
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <label className="text-xs text-gray-600 dark:text-gray-400 mt-3 block">
               Observation
             </label>
             <textarea
@@ -743,39 +963,33 @@ export default function NewEntryModal({
           {error && <div className="text-sm text-red-600">{error}</div>}
         </div>
 
-        {/* Footer avec résumé unique */}
+        {/* Footer avec résumé + actions */}
         <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between gap-2">
           <div className="text-xs text-gray-600 dark:text-gray-400">
-            <b>Résumé :</b> {totalHousehold} pers. • {minorsCount} enfant
-            {minorsCount > 1 ? "s" : ""}
+            <b>Résumé :</b> {totalHousehold} pers. • {adultsCount} adultes • {childMajors} enfants
+            majeurs • {childMinors} enfants mineurs
+            {addr.adresse || addr.npa || addr.ville ? (
+              <>
+                {" "}
+                • {addr.adresse}, {addr.npa} {addr.ville}
+              </>
+            ) : null}
           </div>
           <div className="flex items-center gap-2">
-            <button
-              className="h-9 px-3 rounded border text-sm"
-              onClick={() => onOpenChange(false)}
-            >
+            <button className="h-9 px-3 rounded border text-sm" onClick={() => onOpenChange(false)}>
               Annuler
             </button>
             <button
               className="h-9 px-4 rounded bg-gray-900 text-white text-sm disabled:opacity-50 inline-flex items-center gap-2"
-              disabled={!formValid || saving}
+              disabled={!formValid}
               onClick={publish}
-              title={
-                !formValid
-                  ? "Compléter NSS et ajouter au moins 1 personne"
-                  : "Publier"
-              }
+              title={!formValid ? "Ajouter au moins un adulte et compléter Réception/Voie/Motif" : "Publier"}
             >
-              {saving ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="h-4 w-4" />
-              )}{" "}
-              Publier
+              <Save className="h-4 w-4" /> Publier
             </button>
           </div>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }
