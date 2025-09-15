@@ -1,7 +1,6 @@
 // src/features/user-profile/UserProfilePage.tsx
 import React from "react";
 import { useParams, useLocation } from "react-router-dom";
-
 import { useJournalStore } from "@/features/journal/store";
 import HeaderBar from "./components/HeaderBar";
 import InteractionBar from "./components/InteractionBar";
@@ -10,7 +9,7 @@ import IncomeCard from "./components/IncomeCard/IncomeCard";
 import PersonalInfoCard from "./components/PersonalInfoCard";
 import HouseholdCard from "./components/Household/HouseholdCard";
 import { useUserProfileState } from "./hooks/useUserProfileState";
-import InteractionDialog from "@/components/InteractionDialog";
+import InteractionDialog from "@/components/interaction";
 import DocumentManager from "./components/DocumentManager/DocumentManager";
 import InteractionTimeline from "./components/InteractionTimeline/InteractionTimeline";
 import HousingProposals from "./components/HousingProposals/HousingProposals";
@@ -21,17 +20,11 @@ import { canonicalizeRole } from "@/lib/roles";
 import { useInteractionsStore } from "@/features/interactions/store";
 import TreatmentModeBar from "./components/TreatmentModeBar";
 import * as people from "@/data/peopleClient";
-
-// LLM / immeubles subventionnés
 import { isAdresseInImmeubles } from "@/data/immeubles";
-
-// Barème
 import { rentLimitFromIncome, BaremeColumn } from "@/lib/bareme";
-
 /* ────────────────────────────────────────────────────────────────────────────────
    Helpers
 ──────────────────────────────────────────────────────────────────────────────── */
-
 const toDate = (s?: string) => {
   if (!s) return undefined;
   const d = new Date(s);
@@ -129,11 +122,9 @@ function buildAttestationDataFromProfile(p: any): Record<string, string> {
     ),
   };
 }
-
 /* ────────────────────────────────────────────────────────────────────────────────
    Page
 ──────────────────────────────────────────────────────────────────────────────── */
-
 const UserProfilePage: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
   const location = useLocation();
@@ -294,9 +285,7 @@ const UserProfilePage: React.FC = () => {
     },
     [userId]
   );
-
   /* ────────────────────────────────────────────────────────────────────── */
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
       <div className="max-w-6xl mx-auto space-y-6">

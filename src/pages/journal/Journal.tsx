@@ -9,7 +9,6 @@ import NewEntryModal, {
   mockSaveEntry,
   mockSearchUserByNSS,
 } from "@/components/NewEntryModal";
-
 import { useJournalStore, type Tache } from "@/features/journal/store";
 
 import FiltersBar from "./components/FiltersBar";
@@ -23,17 +22,11 @@ export type SortKey = "id" | "reception" | "statut" | "priorite";
 export type SortDir = "asc" | "desc";
 
 /* ---------------- Changelog ---------------- */
-type ChangeItem = {
-  field: string;
-  before: any;
-  after: any;
-};
-type ChangeEntry = {
-  at: string; // ISO
-  items: ChangeItem[];
-};
-type ChangeLog = Record<string, ChangeEntry[]>; // key = taskId
+type ChangeItem = { field: string; before: any; after: any };
+type ChangeEntry = { at: string; items: ChangeItem[] };
+type ChangeLog = Record<string, ChangeEntry[]>;
 
+/* ---------------- Ordres ---------------- */
 const statutOrder: Tache["statut"][] = [
   "À traiter",
   "En traitement",
@@ -42,6 +35,24 @@ const statutOrder: Tache["statut"][] = [
   "Refusé",
 ];
 const prioriteOrder: Tache["priorite"][] = ["Haute", "Basse"];
+
+/* ======================= Helpers ======================= */
+const slugify = (s: string) =>
+  (s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9\-\.]/g, "");
+
+/** ⚠️ L’ID attendu par useUserProfileState = slug(nom-prenom-dateNaissance telle que dans people.json) */
+function makeUserSlugFromTask(t: Tache): string {
+  const u = t.utilisateurs?.[0];
+  const nom = u?.nom ?? "";
+  const prenom = u?.prenom ?? "";
+  const dn = u?.dateNaissance ?? ""; // conserver le format (dd.mm.yyyy ou yyyy-mm-dd) tel que dans people.json
+  return slugify(`${nom}-${prenom}-${dn}`);
+}
 
 /* ======================= Modale “Consulter” ======================= */
 function ConsultModal({
@@ -81,7 +92,9 @@ function ConsultModal({
           <Card>
             <CardContent className="p-4 space-y-2">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge className={statutBadgeClass(task.statut)}>{task.statut}</Badge>
+                <Badge className={statutBadgeClass(task.statut)}>
+                  {task.statut}
+                </Badge>
                 <span className="text-sm text-gray-600">
                   Réception: {fmt(task.reception)} • Par: {initials3(task.par)}
                 </span>
@@ -110,9 +123,11 @@ function ConsultModal({
                 <div className="mt-2 text-xs text-gray-600 space-y-1">
                   {task.utilisateurs.map((u, i) => (
                     <div key={i}>
-                      {`${u.titre} ${u.nom.toUpperCase()} ${u.prenom}, né(e) le ${fmt(
-                        u.dateNaissance
-                      )}, ${u.adresse}, ${u.npa} ${u.ville}`}
+                      {`${u.titre} ${u.nom.toUpperCase()} ${
+                        u.prenom
+                      }, né(e) le ${fmt(u.dateNaissance)}, ${u.adresse}, ${
+                        u.npa
+                      } ${u.ville}`}
                     </div>
                   ))}
                 </div>
@@ -123,9 +138,13 @@ function ConsultModal({
           {/* Historique des modifications */}
           <Card>
             <CardContent className="p-4">
-              <div className="font-medium mb-2">Historique des modifications</div>
+              <div className="font-medium mb-2">
+                Historique des modifications
+              </div>
               {changes.length === 0 ? (
-                <div className="text-sm text-gray-500">Aucune modification enregistrée pour cette entrée.</div>
+                <div className="text-sm text-gray-500">
+                  Aucune modification enregistrée pour cette entrée.
+                </div>
               ) : (
                 <div className="space-y-3">
                   {[...changes]
@@ -138,9 +157,14 @@ function ConsultModal({
                         <ul className="space-y-1">
                           {entry.items.map((it, i2) => (
                             <li key={i2}>
-                              <span className="font-mono">{it.field}</span>{" "}
-                              : <span className="line-through text-gray-500">{String(it.before ?? "—")}</span>{" "}
-                              → <span className="font-medium">{String(it.after ?? "—")}</span>
+                              <span className="font-mono">{it.field}</span> :{" "}
+                              <span className="line-through text-gray-500">
+                                {String(it.before ?? "—")}
+                              </span>{" "}
+                              →{" "}
+                              <span className="font-medium">
+                                {String(it.after ?? "—")}
+                              </span>
                             </li>
                           ))}
                         </ul>
@@ -153,7 +177,10 @@ function ConsultModal({
         </div>
 
         <div className="px-4 py-3 border-t flex justify-end">
-          <button className="rounded border px-3 py-1 text-sm hover:bg-gray-50" onClick={onClose}>
+          <button
+            className="rounded border px-3 py-1 text-sm hover:bg-gray-50"
+            onClick={onClose}
+          >
             Fermer
           </button>
         </div>
@@ -201,7 +228,7 @@ const JournalPage: React.FC = () => {
     [tasks, consultTaskId]
   );
 
-  // ChangeLog local par taskId
+  // ChangeLog local
   const [changeLog, setChangeLog] = useState<ChangeLog>({});
 
   /* ---------------- Debounce recherche ---------------- */
@@ -229,34 +256,40 @@ const JournalPage: React.FC = () => {
       const addTask = (useJournalStore.getState() as any).addTask;
       if (typeof addTask === "function") addTask(t);
       setOpenRows((prev) => ({ ...prev, [t.id]: true }));
-      // On peut créer une entrée "création"
       setChangeLog((prev) => ({
         ...prev,
         [t.id]: [
           ...(prev[t.id] ?? []),
-          { at: new Date().toISOString(), items: [{ field: "création", before: "", after: "ajoutée" }] },
+          {
+            at: new Date().toISOString(),
+            items: [{ field: "création", before: "", after: "ajoutée" }],
+          },
         ],
       }));
     };
 
     const onPatch = (e: Event) => {
-      const { id, patch } = (e as CustomEvent<{ id: string; patch: Partial<Tache> }>).detail;
+      const { id, patch } = (
+        e as CustomEvent<{ id: string; patch: Partial<Tache> }>
+      ).detail;
 
-      // 1) Capturer valeurs "before"
+      // before
       const st: any = useJournalStore.getState();
-      const beforeTask: Tache | undefined = (st.tasks ?? []).find((tt: Tache) => tt.id === id);
+      const beforeTask: Tache | undefined = (st.tasks ?? []).find(
+        (tt: Tache) => tt.id === id
+      );
 
-      // 2) Appliquer patch via store (avec fallback)
-      if (typeof st.patchTask === "function") {
-        st.patchTask(id, patch);
-      } else if (typeof st.updateTask === "function") {
-        st.updateTask(id, patch);
-      } else if (typeof st.setTasks === "function") {
-        const next = (st.tasks ?? []).map((t: Tache) => (t.id === id ? { ...t, ...patch } : t));
+      // apply
+      if (typeof st.patchTask === "function") st.patchTask(id, patch);
+      else if (typeof st.updateTask === "function") st.updateTask(id, patch);
+      else if (typeof st.setTasks === "function") {
+        const next = (st.tasks ?? []).map((t: Tache) =>
+          t.id === id ? { ...t, ...patch } : t
+        );
         st.setTasks(next);
       }
 
-      // 3) Logger le diff
+      // log diff
       if (beforeTask) {
         const items: ChangeItem[] = Object.keys(patch).map((k) => {
           const key = k as keyof Tache;
@@ -276,15 +309,20 @@ const JournalPage: React.FC = () => {
     const onRemove = (e: Event) => {
       const { id } = (e as CustomEvent<{ id: string }>).detail;
       const st: any = useJournalStore.getState();
-      if (typeof st.removeTask === "function") {
-        st.removeTask(id);
-      } else if (typeof st.setTasks === "function") {
+      if (typeof st.removeTask === "function") st.removeTask(id);
+      else if (typeof st.setTasks === "function") {
         const next = (st.tasks ?? []).filter((t: Tache) => t.id !== id);
         st.setTasks(next);
       }
       setChangeLog((prev) => ({
         ...prev,
-        [id]: [...(prev[id] ?? []), { at: new Date().toISOString(), items: [{ field: "suppression", before: "", after: "supprimée" }] }],
+        [id]: [
+          ...(prev[id] ?? []),
+          {
+            at: new Date().toISOString(),
+            items: [{ field: "suppression", before: "", after: "supprimée" }],
+          },
+        ],
       }));
     };
 
@@ -318,7 +356,8 @@ const JournalPage: React.FC = () => {
       if (filtreMotif !== "Tous" && t.motif !== filtreMotif) return false;
       if (filtrePar !== "Tous" && initials3(t.par) !== filtrePar) return false;
       if (filtreStatut !== "Tous" && t.statut !== filtreStatut) return false;
-      if (filtrePriorite !== "Toutes" && t.priorite !== (filtrePriorite as any)) return false;
+      if (filtrePriorite !== "Toutes" && t.priorite !== (filtrePriorite as any))
+        return false;
 
       if (!q) return true;
       const hay = [
@@ -327,7 +366,9 @@ const JournalPage: React.FC = () => {
         t.nss,
         t.observation,
         ...(t.observationTags ?? []),
-        ...t.utilisateurs.map((u) => `${u.nom} ${u.prenom} ${fmt(u.dateNaissance)}`),
+        ...t.utilisateurs.map(
+          (u) => `${u.nom} ${u.prenom} ${fmt(u.dateNaissance)}`
+        ),
       ]
         .join(" ")
         .toLowerCase();
@@ -355,9 +396,16 @@ const JournalPage: React.FC = () => {
         case "reception":
           return factor * a.reception.localeCompare(b.reception);
         case "statut":
-          return factor * (statutOrder.indexOf(a.statut) - statutOrder.indexOf(b.statut));
+          return (
+            factor *
+            (statutOrder.indexOf(a.statut) - statutOrder.indexOf(b.statut))
+          );
         case "priorite":
-          return factor * (prioriteOrder.indexOf(a.priorite) - prioriteOrder.indexOf(b.priorite));
+          return (
+            factor *
+            (prioriteOrder.indexOf(a.priorite) -
+              prioriteOrder.indexOf(b.priorite))
+          );
       }
     });
     return arr;
@@ -374,10 +422,31 @@ const JournalPage: React.FC = () => {
   /* ---------------- Actions ---------------- */
   const onTreat = async (t: Tache) => {
     try {
-      await traiterTache(t, {
-        navigate,
-        setOpenForId: (id: string) => setOpenRows((prev) => ({ ...prev, [id]: true })),
-      });
+      // 1) construire l'userId attendu par la page profil (slug basé sur people.json)
+      const userSlug = makeUserSlugFromTask(t);
+
+      // 2) upsert côté "personnes" (localStorage) — optionnel mais OK
+      await traiterTache(t, { now: new Date() });
+
+      // 3) patcher le statut dans le journal → “En traitement”
+      window.dispatchEvent(
+        new CustomEvent("journal:patch", {
+          detail: {
+            id: t.id,
+            patch: { statut: "En traitement" as Tache["statut"] },
+          },
+        })
+      );
+
+      // 4) ouvrir la ligne dans le tableau (UX)
+      setOpenRows((prev) => ({ ...prev, [t.id]: true }));
+
+      // 5) naviguer vers la page profil en MODE TRAITEMENT
+      navigate(
+        `/users/${encodeURIComponent(
+          userSlug
+        )}?mode=traitement&taskId=${encodeURIComponent(t.id)}`
+      );
     } catch (e) {
       console.error("❌ Échec du traitement:", e);
       alert("Le traitement a échoué. Voir la console.");
@@ -447,7 +516,7 @@ const JournalPage: React.FC = () => {
         sortDir={sortDir}
         onToggleSort={onToggleSort}
         onTreat={onTreat}
-        onConsult={onConsult} // ✅ branchement
+        onConsult={onConsult}
       />
 
       {/* Mobile cards */}
@@ -458,11 +527,11 @@ const JournalPage: React.FC = () => {
           setOpenRows={setOpenRows}
           showAllPersons={showAllPersons}
           onTreat={onTreat}
-          onConsult={onConsult} // ✅ branchement
+          onConsult={onConsult}
         />
       </div>
 
-      {/* Modale Nouvelle entrée (publication via onSaved) */}
+      {/* Modale Nouvelle entrée */}
       <NewEntryModal
         open={openNew}
         onOpenChange={setOpenNew}

@@ -15,7 +15,7 @@ import {
 } from "../helpers";
 
 type Props = {
-  results?: Tache[]; // peut être undefined
+  results?: Tache[];
   openRows: Record<string, boolean>;
   setOpenRows: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   showAllPersons: boolean;
@@ -26,17 +26,36 @@ type Props = {
 };
 
 const MobileCards: React.FC<Props> = ({
-  results = [], // fallback pour éviter .map sur undefined
+  results = [],
   openRows,
   setOpenRows,
   showAllPersons,
-  onTreat = () => {}, // no-op
-  onConsult = () => {}, // no-op
+  onTreat = () => {},
+  onConsult = () => {},
 }) => {
   const toggleRow = (id: string) =>
     setOpenRows((prev) => ({ ...prev, [id]: !prev[id] }));
 
   const isRowOpen = (id: string) => showAllPersons || !!openRows[id];
+
+  // Actions autorisées (même logique que DesktopTable)
+  const allowedActions = (statut: Tache["statut"]) =>
+    statut === "Validé"
+      ? (["🔄", "🔍"] as const)
+      : statut === "En traitement"
+      ? (["🔍"] as const)
+      : (["✏️", "↪️"] as const);
+
+  const titleFor = (a: string) =>
+    a === "🔍"
+      ? "Consulter"
+      : a === "🔄"
+      ? "Reprendre"
+      : a === "✏️"
+      ? "Traiter"
+      : a === "↪️"
+      ? "Transférer"
+      : "";
 
   return (
     <div className="space-y-3">
@@ -68,7 +87,7 @@ const MobileCards: React.FC<Props> = ({
           </button>
 
           <CardContent className="p-3 space-y-3">
-            {/* Ligne infos principales */}
+            {/* Infos principales */}
             <div className="text-xs text-gray-600 dark:text-gray-400 flex flex-wrap gap-x-4 gap-y-1">
               <span>
                 <span className="font-medium">Réception :</span> {fmt(t.reception)}
@@ -87,9 +106,7 @@ const MobileCards: React.FC<Props> = ({
             {/* Observation + tags */}
             {(t.observation || (t.observationTags?.length ?? 0) > 0) && (
               <div className="space-y-1">
-                {t.observation && (
-                  <div className="text-sm">{t.observation}</div>
-                )}
+                {t.observation && <div className="text-sm">{t.observation}</div>}
                 {!!t.observationTags?.length && (
                   <div className="flex flex-wrap gap-1">
                     {t.observationTags.map((tag) => (
@@ -102,28 +119,25 @@ const MobileCards: React.FC<Props> = ({
               </div>
             )}
 
-            {/* Boutons d'action */}
+            {/* Boutons d'action (avec emojis, logique miroir du desktop) */}
             <div className="flex flex-wrap gap-3 pt-1">
-              <button
-                className="underline"
-                title="Consulter"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onConsult(t);
-                }}
-              >
-                Consulter
-              </button>
-              <button
-                className="underline"
-                title="Traiter"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onTreat(t);
-                }}
-              >
-                Traiter
-              </button>
+              {allowedActions(t.statut).map((a) => (
+                <button
+                  key={a}
+                  type="button"
+                  className="underline"
+                  title={titleFor(a)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (a === "🔍") return onConsult(t);
+                    if (a === "✏️") return onTreat(t);
+                    // placeholders pour 🔄/↪️
+                    console.log(a, t.id);
+                  }}
+                >
+                  {a}
+                </button>
+              ))}
             </div>
 
             {/* Détail personnes rattachées */}

@@ -1,3 +1,4 @@
+//src/features/user-profile/components/InteractionTimeline/InteractionTimeline.tsx
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,8 +30,7 @@ import {
   Trash2,
   MessageSquare,
 } from "lucide-react";
-
-import InteractionDialog from "@/components/InteractionDialog";
+import InteractionDialog from "@/components/interaction";
 import { useInteractionsStore } from "@/features/interactions/store";
 import type { Interaction } from "@/types/interaction";
 
@@ -320,7 +320,7 @@ const InteractionTimeline: React.FC<{ title?: string }> = ({
                                 onClick={() => setEditing(it)}
                                 title="Modifier"
                               >
-                                <Pencil className="h-4 w-4" />
+                                ✏️<Pencil className="h-4 w-4" />
                               </Button>
 
                               <AlertDialog>
@@ -331,7 +331,7 @@ const InteractionTimeline: React.FC<{ title?: string }> = ({
                                     className="h-8 w-8 text-red-600 hover:text-red-700"
                                     title="Supprimer"
                                   >
-                                    <Trash2 className="h-4 w-4" />
+                                   X<Trash2 className="h-4 w-4" />
                                   </Button>
                                 </AlertDialogTrigger>
                                 <AlertDialogContent>

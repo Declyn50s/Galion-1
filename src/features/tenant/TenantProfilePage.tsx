@@ -1,7 +1,6 @@
 // src/features/tenant/TenantProfilePage.tsx
 import React from "react";
 import { useParams } from "react-router-dom";
-
 import HeaderBar from "@/features/user-profile/components/HeaderBar";
 import IncomeCard from "@/features/user-profile/components/IncomeCard/IncomeCard";
 import PersonalInfoCard from "@/features/user-profile/components/PersonalInfoCard";
@@ -18,7 +17,6 @@ import DernierControl, {
 } from "@/features/tenant/components/DernierControl";
 import ControlDialog from "@/features/tenant/components/Control/ControlDialog";
 import DecisionForm from "@/features/tenant/components/Control/DecisionForm";
-
 import {
   Dialog,
   DialogContent,
@@ -26,26 +24,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import QuickNavSticky, {
-  QuickNavIcons,
 } from "@/features/user-profile/components/QuickNavSticky/QuickNavSticky";
 import { useUserProfileState } from "@/features/user-profile/hooks/useUserProfileState";
-
-// ⚠️ Import par défaut (pas de { InteractionDialog })
-import InteractionDialog from "@/components/InteractionDialog";
-
-// Types bail (pour l’état local)
+import InteractionDialog from "@/components/interaction";
 import type { LeaseValue } from "@/features/tenant/components/lease/types";
-
-// Interactions store
 import { useInteractionsStore } from "@/features/interactions/store";
-
-// Immeubles (pour détecter LLM + base)
 import {
   isAdresseInImmeubles,
   IMMEUBLES,
   stripDiacritics,
 } from "@/data/immeubles";
-
 /* ─────────────────────────────────────────────────────────
    Helpers alignés
 ────────────────────────────────────────────────────────── */
@@ -72,7 +60,6 @@ const normalizeRole = (s?: string) =>
     .replace(/-/g, "–")
     .replace(/\s*–\s*/g, " – ")
     .trim();
-
 function addressLineFromProfile(p: any): string {
   const direct =
     p.adresse ?? p.address ?? p.addressLine ?? p.addressLine1 ?? "";
@@ -85,7 +72,6 @@ function addressLineFromProfile(p: any): string {
 
   return parts.join(" ").trim();
 }
-
 // très simple “core” de rue (sans accents/majuscules, sans chiffres)
 function streetCoreLoose(s: string): string {
   return stripDiacritics(String(s || ""))
@@ -95,7 +81,6 @@ function streetCoreLoose(s: string): string {
     .replace(/\s+/g, " ")
     .trim();
 }
-
 // essaie de déduire la base (LC.75 / RC.47 / LC.2007 …) depuis l’adresse
 function guessBaseFromImmeubles(userAdresse: string): string | null {
   const core = streetCoreLoose(userAdresse);
@@ -106,9 +91,7 @@ function guessBaseFromImmeubles(userAdresse: string): string | null {
   });
   return row?.base ?? null;
 }
-
 type LawKind = "LC.75" | "LC.2007" | "RC" | "UNKNOWN";
-
 // mappe la base en “famille de loi”
 function lawFromBase(base?: string | null): LawKind {
   const b = String(base || "").toUpperCase();
@@ -117,7 +100,6 @@ function lawFromBase(base?: string | null): LawKind {
   if (b.includes("RC.") || b.includes("RC ")) return "RC";
   return "UNKNOWN";
 }
-
 // Comptages occupation (exclut les enfants droit de visite)
 function countAdultsMinorsOccupants(main: any, household: any[]) {
   const ALL = [{ ...main, role: "demandeur" }, ...(household ?? [])];
@@ -160,11 +142,9 @@ type ControlResult = {
   notes: string[];
   actions: string[];
 };
-
 /* ─────────────────────────────────────────────────────────
    Page
 ────────────────────────────────────────────────────────── */
-
 const TenantProfilePage: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
   const state = useUserProfileState(userId);

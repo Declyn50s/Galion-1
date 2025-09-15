@@ -54,9 +54,7 @@ function makeUserId(t: Tache): string {
   const n = (t.nss || "").replace(/\D+/g, "");
   if (n) return `USR-${n}`;
   const nom = (u?.nom || "").normalize("NFD").replace(/[^\p{L}]+/gu, "");
-  const prenom = (u?.prenom || "")
-    .normalize("NFD")
-    .replace(/[^\p{L}]+/gu, "");
+  const prenom = (u?.prenom || "").normalize("NFD").replace(/[^\p{L}]+/gu, "");
   return `USR-${(nom + prenom || t.id).toUpperCase()}`;
 }
 
@@ -86,7 +84,10 @@ export function buildPersonFromTask(
   };
 }
 
-function upsertPerson(next: PersonRecord): { userId: string; created: boolean } {
+function upsertPerson(next: PersonRecord): {
+  userId: string;
+  created: boolean;
+} {
   const people = readPeople();
   const byNssIdx =
     next.socialSecurityNumber && next.socialSecurityNumber.trim()
