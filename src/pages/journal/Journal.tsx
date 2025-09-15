@@ -4,13 +4,8 @@ import { LogIn, X } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useNavigate } from "react-router-dom";
-
-import NewEntryModal, {
-  mockSaveEntry,
-  mockSearchUserByNSS,
-} from "@/components/NewEntryModal";
+import NewEntryModal, { mockSaveEntry, mockSearchUserByNSS } from "@/components/entry";
 import { useJournalStore, type Tache } from "@/features/journal/store";
-
 import FiltersBar from "./components/FiltersBar";
 import DesktopTable from "./components/DesktopTable";
 import MobileCards from "./components/MobileCards";
