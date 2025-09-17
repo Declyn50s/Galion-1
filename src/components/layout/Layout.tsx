@@ -121,6 +121,7 @@ export const Layout: React.FC = () => {
 
   // sous-rubriques (exemples)
   const subHousingMap: Record<string, string> = {
+    lup: "LUP",
     "llm-vacant": "Liste des LLM vacants",
     gerances: "Liste des gérances",
     immeubles: "Liste des immeubles",

@@ -20,6 +20,7 @@ const HousingPage: React.FC = () => {
   return (
     <div className="p-6 space-y-4">
       <div className="flex gap-2 flex-wrap">
+        <SubTab to="/housing/lup" label="LUP" />
         <SubTab to="/housing/llm-vacant" label="Liste des LLM vacants" />
         <SubTab to="/housing/gerances" label="Liste des gérances" />
         <SubTab to="/housing/immeubles" label="Liste des immeubles" />

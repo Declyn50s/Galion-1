@@ -8,6 +8,7 @@ import { UserProfilePage } from "@/features/user-profile";
 import TenantProfilePage from "@/features/tenant/TenantProfilePage";
 import { Memento } from "./pages/memo/Memento";
 import HousingPage from "./pages/housing/HousingPage";
+import LupPage from "@/pages/housing/lup/LupPage";
 import LlmVacantList from "./pages/housing/LlmVacantList";
 import GerancesList from "./pages/housing/GerancesList";
 import ImmeublesList from "./pages/housing/ImmeublesList";
@@ -69,7 +70,8 @@ export default function App() {
 
           {/* Logements + sous-pages */}
           <Route path="/housing" element={<HousingPage />}>
-            <Route index element={<Navigate to="llm-vacant" replace />} />
+            <Route index element={<Navigate to="lup" replace />} />
+            <Route path="lup" element={<LupPage />} />
             <Route path="llm-vacant" element={<LlmVacantList />} />
             <Route path="gerances" element={<GerancesList />} />
             <Route path="immeubles" element={<ImmeublesList />} />
