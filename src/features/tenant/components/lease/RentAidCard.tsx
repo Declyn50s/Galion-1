@@ -7,13 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Banknote, Calculator } from "lucide-react";
 import type { LeaseCardCommonProps, OnClicks, LeaseValue } from "./types";
-import { CHF, numberOr, parseNumber } from "./utils";
+import { CHF, numberOr } from "./utils";
 
 /**
- * MoneyInput
- * - Garde une string pendant la frappe (évite l’écrasement à 0/"" en cours de saisie).
- * - Au blur/Enter: commit seulement si c'est un nombre valide; sinon rollback à la dernière valeur valide.
- * - Resync depuis la prop uniquement si la valeur externe a vraiment changé (évite les resets pendant la frappe).
+ * MoneyInput robuste :
+ * - Garde une string pendant la frappe (évite les 0 intempestifs).
+ * - Commit au blur/Enter seulement si nombre valide.
+ * - Si vide / entrée triviale, **commit `undefined`** (effacement réel).
  */
 const MoneyInput: React.FC<{
   id: string;
@@ -23,11 +23,9 @@ const MoneyInput: React.FC<{
   className?: string;
 }> = ({ id, value, onChange, readOnly, className }) => {
   const [committed, setCommitted] = React.useState<number | undefined>(value);
-  const [raw, setRaw] = React.useState<string>(
-    value != null ? String(value) : ""
-  );
+  const [raw, setRaw] = React.useState<string>(value != null ? String(value) : "");
 
-  // Resynchronise seulement quand la valeur externe ≠ dernière valeur commitée
+  // Resync si la valeur externe change réellement
   React.useEffect(() => {
     if (value !== committed) {
       setCommitted(value);
@@ -36,18 +34,26 @@ const MoneyInput: React.FC<{
   }, [value, committed]);
 
   const normalizeForParse = (s: string) =>
-    s
-      .trim()
-      .replace(/\s+/g, "") // espaces
-      .replace(/['’_]/g, "") // séparateurs de milliers usuels
-      .replace(",", "."); // virgule -> point
+    s.trim().replace(/\s+/g, "").replace(/['’_]/g, "").replace(",", ".");
+
+  const isTrivial = (s: string) => s === "" || s === "-" || s === "." || s === ",";
 
   const commitIfValid = () => {
     const normalized = normalizeForParse(raw);
-    const n = parseNumber(normalized);
 
-    if (n == null || Number.isNaN(n)) {
-      // invalide -> rollback affichage, ne remonte rien
+    // Vide / trivial → efface (commit undefined)
+    if (isTrivial(normalized)) {
+      if (committed !== undefined) {
+        setCommitted(undefined);
+        onChange(undefined);
+      }
+      setRaw("");
+      return;
+    }
+
+    const n = Number(normalized);
+    if (!Number.isFinite(n)) {
+      // invalide → rollback visuel
       setRaw(committed != null ? String(committed) : "");
       return;
     }
@@ -55,7 +61,6 @@ const MoneyInput: React.FC<{
     if (n !== committed) {
       setCommitted(n);
       onChange(n);
-      // On laisse le parent propager value; raw sera resync via useEffect si besoin
     }
   };
 
@@ -64,13 +69,16 @@ const MoneyInput: React.FC<{
       id={id}
       value={raw}
       onChange={(e) => {
-        // Autorise états transitoires (vide, "-", "1,", etc.). Filtre le reste.
+        // Autoriser chiffres + séparateurs usuels
         const next = e.target.value.replace(/[^\d.,\s\-+'’_]/g, "");
         setRaw(next);
       }}
       onBlur={commitIfValid}
       onKeyDown={(e) => {
-        if (e.key === "Enter") {
+        if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
+        if (e.key === "Escape") {
+          // ESC : rollback visuel sans changer la valeur
+          setRaw(committed != null ? String(committed) : "");
           (e.currentTarget as HTMLInputElement).blur();
         }
       }}
@@ -88,13 +96,21 @@ const RentAidCard: React.FC<LeaseCardCommonProps & OnClicks> = ({
   onModifyRent,
   className,
 }) => {
+  // Toujours repartir de la prop du parent à chaque rendu
   const v: LeaseValue = React.useMemo(() => ({ ...value }), [value]);
+
+  // Merge “safe”
   const set = (patch: Partial<LeaseValue>) => onChange?.({ ...v, ...patch });
 
-  const net = numberOr(v.rentLoweredMonthly ?? v.rentNetMonthly, 0);
-  const annualNet = net * 12;
+  // Si "abaissé" est défini, il prime, sinon on retombe sur le net standard
+  const effectiveNetMonthly = numberOr(
+    v.rentLoweredMonthly ?? v.rentNetMonthly,
+    0
+  );
+
+  const annualNet = effectiveNetMonthly * 12;
   const charges = numberOr(v.chargesMonthly, 0);
-  const totalMonthly = net + charges;
+  const totalMonthly = effectiveNetMonthly + charges;
 
   return (
     <Card className={className}>
@@ -103,10 +119,11 @@ const RentAidCard: React.FC<LeaseCardCommonProps & OnClicks> = ({
           <Banknote className="h-5 w-5" />
           Loyers & aides
         </CardTitle>
+
         <div className="mt-2 grid grid-cols-3 gap-3 text-right">
           <div className="rounded-md border bg-white px-3 py-2">
             <div className="text-xs text-slate-500">Loyer net</div>
-            <div className="font-semibold">{CHF(net)}</div>
+            <div className="font-semibold">{CHF(effectiveNetMonthly)}</div>
           </div>
           <div className="rounded-md border bg-white px-3 py-2">
             <div className="text-xs text-slate-500">Charges</div>
@@ -141,7 +158,7 @@ const RentAidCard: React.FC<LeaseCardCommonProps & OnClicks> = ({
 
           <div className="md:col-span-3">
             <Label htmlFor="annualNet">Loyer annuel net</Label>
-            {/* Affichage non modifiable, sélectionnable, ignoré par Tab */}
+            {/* Lecture seule (calculé) */}
             <Input
               id="annualNet"
               value={CHF(annualNet)}

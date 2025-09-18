@@ -119,19 +119,20 @@ const HouseholdCounters: React.FC<Props> = ({
 
     // Membres du ménage
     for (const m of household) {
-      const age = yearsDiff(m.birthDate)
-      const isDV = isVisitingChildRole(m.role)
+  // 🔽 NE PAS COMPTER les enfants à naître
+  if ((m as any).unborn) continue;
 
-      // ✅ Règle : DV = uniquement si mineur ; DV majeur → plus DV
-      if (isDV && age < 18) {
-        visitingChildren++
-        continue // DV mineurs ne sont pas comptés
-      }
+  const age = yearsDiff(m.birthDate);
+  const isDV = isVisitingChildRole(m.role);
 
-      // count as personne normale (DV majeurs inclus)
-      // @ts-ignore: permitExpiryDate peut ne pas être typé dans HouseholdMember
-      pushCounted(m.birthDate, m.nationality, m.residencePermit, (m as any).permitExpiryDate)
-    }
+  if (isDV && age < 18) {
+    visitingChildren++;
+    continue;
+  }
+
+  // @ts-ignore: permitExpiryDate optionnelle
+  pushCounted(m.birthDate, m.nationality, m.residencePermit, (m as any).permitExpiryDate);
+}
 
     return { total, adults, minors, excluded, visitingChildren }
   }, [main, household])

@@ -10,15 +10,7 @@ export const CATEGORIES = [
   { key: "LE_VDL", label: "LE VdL" },
 ] as const;
 
-export const BASES = [
-  "L47",
-  "L53",
-  "L65",
-  "L74",
-  "L75",
-  "L2007",
-  "—",
-] as const;
+export const BASES = ["L47","L53","L65","L74","L75","L2007","LA","LP","LM","—"] as const;
 
 export const STATUTS = [
   { key: "Actif", color: "bg-emerald-100 text-emerald-700" },

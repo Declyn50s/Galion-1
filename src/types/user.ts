@@ -8,7 +8,9 @@ export interface HouseholdMember {
   nationality: string;
   residencePermit: string;
   permitExpiryDate?: string;
-  
+    // 🔽 NOUVEAU
+  unborn?: boolean;               // enfant à naître ?
+  expectedBirthDate?: string;     // DPA (date prévue d’accouchement)
   // Curateur individuel
   hasCurator: boolean;
   curatorName?: string;

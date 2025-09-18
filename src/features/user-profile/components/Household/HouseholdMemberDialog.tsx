@@ -1,338 +1,400 @@
 // src/features/user-profile/components/Household/HouseholdMemberDialog.tsx
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react"
 import {
   Dialog,
   DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+  DialogFooter,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import NationalitySelector from "@/components/NationalitySelector";
-import PermitExpiryField from "@/features/user-profile/components/PersonalInfoCard/PermitExpiryField";
-import type { HouseholdMember } from "@/types/user";
-import { useToast } from "@/hooks/use-toast";
-import { canonicalizeRole, ROLE_OPTIONS } from "@/lib/roles";
+} from "@/components/ui/select"
+import { Separator } from "@/components/ui/separator"
+import { Button } from "@/components/ui/button"
+import { Save, UserPlus } from "lucide-react"
 
-// ───────────────────────────────────────────────────────────
-// Règle de duplication des rôles (OK en multiple pour “enfant*”)
-const allowDuplicates = (roleCanonical: string) =>
-  roleCanonical.startsWith("enfant");
+// ⬇️ garde l'import par défaut (aligné avec tes autres fichiers)
+import NationalitySelector from "@/components/NationalitySelector"
+import { StatusSelect } from "@/components/StatusSelect"
+import type { SelectedStatus } from "@/features/user-profile/hooks/useUserProfileState"
+import type { HouseholdMember } from "@/types/user"
+import {
+  MARITAL_STATUS_OPTIONS,
+  RESIDENCE_PERMIT_OPTIONS,
+} from "@/types/user"
 
-// Âge helpers
-const toDate = (s?: string) => {
-  if (!s) return undefined;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? undefined : d;
-};
-const yearsDiff = (iso?: string) => {
-  const d = toDate(iso);
-  if (!d) return 0;
-  const today = new Date();
-  let age = today.getFullYear() - d.getFullYear();
-  const md = today.getMonth() - d.getMonth();
-  if (md < 0 || (md === 0 && today.getDate() < d.getDate())) age--;
-  return age;
-};
+import CuratorSection from "@/features/user-profile/components/PersonalInfoCard/CuratorSection"
+import LausanneStatusFields from "@/features/user-profile/components/PersonalInfoCard/LausanneStatusFields"
+import PermitExpiryField from "@/features/user-profile/components/PersonalInfoCard/PermitExpiryField"
 
-interface Props {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-  member: HouseholdMember;
-  /** full household for validations */
-  household: HouseholdMember[];
-  onSave: (patch: Partial<HouseholdMember>) => void;
+// Valeurs canoniques déjà adoptées dans Household
+const ROLE_OPTIONS = [
+  { value: "conjoint", label: "Conjoint·e" },
+  { value: "enfant", label: "Enfant" },
+  { value: "enfant garde alternée", label: "Enfant (garde alternée)" },
+  { value: "enfant droit de visite", label: "Enfant (droit de visite)" },
+  { value: "autre", label: "Autre" },
+] as const
+
+type Props = {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  // édition si fourni, sinon création
+  member?: Partial<HouseholdMember> | null
+  onSave: (payload: Partial<HouseholdMember> & {
+    id?: string
+    // champs “similaires” au PersonalInfoForm ajoutés au membre
+    lastName?: string
+    firstName?: string
+    socialSecurityNumber?: string
+    address?: string
+    addressComplement?: string
+    postalCode?: string
+    city?: string
+    phone?: string
+    email?: string
+    maritalStatus?: string
+    lausanneStatus?: string
+    lausanneStatusDate?: string
+    statuses?: SelectedStatus[]
+  }) => void
 }
+
+const splitName = (full?: string) => {
+  const raw = (full ?? "").trim()
+  if (!raw) return { firstName: "", lastName: "" }
+  const parts = raw.split(/\s+/)
+  if (parts.length === 1) return { firstName: parts[0], lastName: "" }
+  return { firstName: parts.slice(0, -1).join(" "), lastName: parts.slice(-1)[0] }
+}
+
+const buildName = (firstName?: string, lastName?: string) =>
+  [firstName ?? "", lastName ?? ""].map(s => (s ?? "").trim()).filter(Boolean).join(" ")
 
 const HouseholdMemberDialog: React.FC<Props> = ({
   open,
   onOpenChange,
   member,
-  household,
   onSave,
 }) => {
-  const { toast } = useToast();
+  // Pré-hydrate les champs à partir du membre existant
+  const initial = useMemo(() => {
+    const { firstName, lastName } = splitName(member?.name)
+    return {
+      id: member?.id,
+      role: (member?.role as string) ?? "",
+      lastName,
+      firstName,
+      gender: (member?.gender as any) ?? "",
+      birthDate: member?.birthDate ?? "",
+      socialSecurityNumber: (member as any)?.socialSecurityNumber ?? "",
+      address: (member as any)?.address ?? "",
+      addressComplement: (member as any)?.addressComplement ?? "",
+      postalCode: (member as any)?.postalCode ?? "",
+      city: (member as any)?.city ?? "",
+      phone: (member as any)?.phone ?? "",
+      email: (member as any)?.email ?? "",
 
-  const usedRoles = useMemo(
-    () =>
-      new Set(
-        household
-          .filter((m) => m.id !== member.id)
-          .map((m) => canonicalizeRole(m.role))
-      ),
-    [household, member.id]
-  );
-  const spouseTaken = usedRoles.has("conjoint");
+      nationality: member?.nationality ?? "Suisse",
+      residencePermit: member?.residencePermit ?? "Citoyen",
+      permitExpiryDate: (member as any)?.permitExpiryDate ?? "",
 
-  const [name, setName] = useState(member.name || "");
-  const [birthDate, setBirthDate] = useState(member.birthDate || "");
-  const [gender, setGender] = useState<"Masculin" | "Féminin" | "">(
-    (member.gender as any) || ""
-  );
-  const [role, setRole] = useState(canonicalizeRole(member.role)); // ← canonique
-  const [nationality, setNationality] = useState(member.nationality || "Suisse");
-  const [residencePermit, setResidencePermit] = useState(
-    member.residencePermit || (member.nationality === "Suisse" ? "Citoyen" : "")
-  );
-  const [permitExpiryDate, setPermitExpiryDate] = useState<string>(
-    // @ts-ignore
-    member.permitExpiryDate || ""
-  );
-  const [status, setStatus] = useState(member.status || "");
+      maritalStatus: (member as any)?.maritalStatus ?? "",
+      lausanneStatus: (member as any)?.lausanneStatus ?? "",
+      lausanneStatusDate: (member as any)?.lausanneStatusDate ?? "",
 
-  const isRoleTaken = usedRoles.has(role) && !allowDuplicates(role);
-  const needsExpiry =
-    nationality !== "Suisse" &&
-    (residencePermit === "Permis B" || residencePermit === "Permis F");
+      hasCurator: !!member?.hasCurator,
+      curatorName: member?.curatorName ?? "",
+      curatorAddress: member?.curatorAddress ?? "",
+      curatorPhone: member?.curatorPhone ?? "",
+      curatorEmail: member?.curatorEmail ?? "",
 
-  // Si nationalité = Suisse → force permis & vide l’échéance
-  useEffect(() => {
-    if (nationality === "Suisse") {
-      setResidencePermit("Citoyen");
-      setPermitExpiryDate("");
+      statuses: ((member as any)?.statuses ?? []) as SelectedStatus[],
+      status: member?.status ?? "", // champ libre existant dans HouseholdMember
     }
-  }, [nationality]);
+  }, [member])
+
+  const [form, setForm] = useState(initial)
+
+  // Ré-hydrate si on ré-ouvre avec un autre membre
+  useEffect(() => setForm(initial), [initial, open])
+
+  const patch = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>
+    setForm(s => ({ ...s, [k]: v }))
+
+  // Règles Nationalité/Permis identiques à PersonalInfoForm
+  useEffect(() => {
+    if (form.nationality === "Suisse") {
+      if (form.residencePermit !== "Citoyen") {
+        patch("residencePermit", "Citoyen")
+      }
+      if (form.permitExpiryDate) {
+        patch("permitExpiryDate", "")
+      }
+    }
+  }, [form.nationality])
+
+  useEffect(() => {
+    // si le permis n'est pas B/F → pas d’échéance
+    if (!(form.residencePermit === "Permis B" || form.residencePermit === "Permis F")) {
+      if (form.permitExpiryDate) patch("permitExpiryDate", "")
+    }
+  }, [form.residencePermit])
 
   const handleSave = () => {
-    if (!name.trim() || !role || !gender) {
-      toast({
-        variant: "destructive",
-        title: "Champs requis",
-        description: "Nom, rôle et genre sont obligatoires.",
-      });
-      return;
+    const payload: Partial<HouseholdMember> & any = {
+      id: form.id,
+      role: (form.role ?? "").toString().trim(),
+      // normalise name
+      name: buildName(form.firstName, form.lastName),
+      // champs similaires au PersonalInfoForm
+      lastName: form.lastName,
+      firstName: form.firstName,
+      gender: form.gender,
+      birthDate: form.birthDate,
+      socialSecurityNumber: form.socialSecurityNumber,
+      address: form.address,
+      addressComplement: form.addressComplement,
+      postalCode: form.postalCode,
+      city: form.city,
+      phone: form.phone,
+      email: form.email,
+
+      nationality: form.nationality,
+      residencePermit: form.nationality === "Suisse" ? "Citoyen" : form.residencePermit,
+      permitExpiryDate:
+        form.nationality !== "Suisse" &&
+        (form.residencePermit === "Permis B" || form.residencePermit === "Permis F")
+          ? form.permitExpiryDate
+          : "",
+
+      maritalStatus: form.maritalStatus,
+      lausanneStatus: form.lausanneStatus,
+      lausanneStatusDate: form.lausanneStatusDate,
+
+      hasCurator: form.hasCurator,
+      curatorName: form.curatorName,
+      curatorAddress: form.curatorAddress,
+      curatorPhone: form.curatorPhone,
+      curatorEmail: form.curatorEmail,
+
+      statuses: form.statuses,
+      status: form.status,
     }
 
-    // Conjoint : doit être majeur et avec date connue
-    if (canonicalizeRole(role) === "conjoint") {
-      if (!birthDate) {
-        toast({
-          variant: "destructive",
-          title: "Date manquante",
-          description:
-            "La date de naissance est requise pour un conjoint (validation d’âge).",
-        });
-        return;
-      }
-      if (yearsDiff(birthDate) < 18) {
-        toast({
-          variant: "destructive",
-          title: "Conjoint invalide",
-          description: "Le conjoint doit être majeur (≥ 18 ans).",
-        });
-        return;
-      }
-    }
-
-    if (isRoleTaken) {
-      toast({
-        variant: "destructive",
-        title: "Rôle déjà utilisé",
-        description: "Choisis un autre rôle (unicité requise).",
-      });
-      return;
-    }
-
-    if (needsExpiry && !permitExpiryDate) {
-      toast({
-        variant: "destructive",
-        title: "Échéance manquante",
-        description:
-          "Date d'expiration requise pour le permis sélectionné (B/F).",
-      });
-      return;
-    }
-
-    // Normalisation permis
-    const finalPermit = nationality === "Suisse" ? "Citoyen" : residencePermit;
-    const needsBF = finalPermit === "Permis B" || finalPermit === "Permis F";
-    const finalExpiry =
-      nationality === "Suisse" || !needsBF ? "" : permitExpiryDate;
-
-    const patch: Partial<HouseholdMember> = {
-      name: name.trim(),
-      role: canonicalizeRole(role), // toujours canonique
-      birthDate,
-      gender: gender as any,
-      nationality,
-      residencePermit: finalPermit,
-      // @ts-ignore (selon ton type)
-      permitExpiryDate: finalExpiry || undefined,
-      status,
-    };
-
-    onSave(patch);
-    onOpenChange(false);
-  };
+    onSave(payload)
+    onOpenChange(false)
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Membre du ménage</DialogTitle>
-        </DialogHeader>
+      {/* 
+        Responsive + scroll interne :
+        - w-[95vw] sur mobile, max-w adaptative
+        - max-h-[85vh] + overflow-hidden (le body scrolle)
+      */}
+      <DialogContent className="w-[95vw] sm:max-w-2xl md:max-w-3xl lg:max-w-4xl p-0 overflow-hidden">
+        {/* Conteneur vertical : header / body (scroll) / footer */}
+        <div className="flex max-h-[85vh] flex-col">
+          <DialogHeader className="px-4 sm:px-6 py-3 border-b bg-white sticky top-0 z-10">
+            <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
+              <UserPlus className="h-5 w-5 shrink-0" />
+              {form.id ? "Modifier le membre du ménage" : "Ajouter un membre au ménage"}
+            </DialogTitle>
+          </DialogHeader>
 
-        <div className="space-y-3 mt-1">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label>Nom complet</Label>
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Prénom Nom"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <Label>Date de naissance</Label>
-              <Input
-                type="date"
-                value={birthDate}
-                onChange={(e) => setBirthDate(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="space-y-1">
-              <Label>Genre</Label>
-              <Select
-                value={gender}
-                onValueChange={(v: "Masculin" | "Féminin") => setGender(v)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Sélectionner…" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Masculin">Masculin</SelectItem>
-                  <SelectItem value="Féminin">Féminin</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1 md:col-span-2">
-              <Label>Rôle</Label>
-              <Select
-                value={role}
-                onValueChange={(v) => {
-                  const next = canonicalizeRole(v);
-                  // Interdit de sélectionner "conjoint" si un conjoint existe déjà
-                  if (next === "conjoint" && spouseTaken) {
-                    toast({
-                      variant: "destructive",
-                      title: "Conjoint déjà présent",
-                      description:
-                        "Le ménage ne peut contenir qu’un seul conjoint.",
-                    });
-                    return;
-                  }
-                  // Interdit de sélectionner "conjoint" si mineur
-                  if (next === "conjoint" && birthDate && yearsDiff(birthDate) < 18) {
-                    toast({
-                      variant: "destructive",
-                      title: "Conjoint invalide",
-                      description: "Le conjoint doit être majeur (≥ 18 ans).",
-                    });
-                    return;
-                  }
-                  setRole(next);
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Sélectionner…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {ROLE_OPTIONS.map((opt) => {
-                    const val = canonicalizeRole(opt.value);
-                    const disabled =
-                      (val === "conjoint" && spouseTaken) ||
-                      (val === "conjoint" &&
-                        !!birthDate &&
-                        yearsDiff(birthDate) < 18);
-                    return (
-                      <SelectItem key={opt.value} value={opt.value} disabled={disabled}>
-                        {opt.label}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label>Nationalité</Label>
-              <NationalitySelector
-                value={nationality}
-                onChange={(val) => setNationality(val)}
-              />
-            </div>
-
-            {nationality !== "Suisse" && (
-              <div className="space-y-1">
-                <Label>Permis</Label>
-                <Select
-                  value={residencePermit}
-                  onValueChange={(v) => {
-                    setResidencePermit(v);
-                    if (!(v === "Permis B" || v === "Permis F")) {
-                      setPermitExpiryDate("");
-                    }
-                  }}
-                >
-                  <SelectTrigger>
+          {/* BODY scrollable */}
+          <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-6">
+            {/* Rôle dans le ménage */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+              <div className="space-y-2">
+                <Label>Rôle dans le ménage</Label>
+                <Select value={form.role} onValueChange={(v) => patch("role", v)}>
+                  <SelectTrigger className="h-9">
                     <SelectValue placeholder="Sélectionner…" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Permis B">Permis B</SelectItem>
-                    <SelectItem value="Permis C">Permis C</SelectItem>
-                    <SelectItem value="Permis F">Permis F</SelectItem>
-                    <SelectItem value="Citoyen">Citoyen</SelectItem>
+                    {ROLE_OPTIONS.map(r => (
+                      <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
-            )}
+            </div>
 
-            {nationality !== "Suisse" && (
-              <div className="md:col-span-2">
-                <PermitExpiryField
-                  permit={residencePermit}
-                  value={permitExpiryDate}
-                  onChange={setPermitExpiryDate}
+            {/* Identité & contact */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+              <div className="space-y-2">
+                <Label htmlFor="lastName">Nom</Label>
+                <Input id="lastName" value={form.lastName} onChange={e => patch("lastName", e.target.value)} className="h-9" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="firstName">Prénom</Label>
+                <Input id="firstName" value={form.firstName} onChange={e => patch("firstName", e.target.value)} className="h-9" />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="gender">Genre</Label>
+                <Select value={form.gender} onValueChange={(v: "Masculin" | "Féminin") => patch("gender", v)}>
+                  <SelectTrigger className="h-9"><SelectValue placeholder="Sélectionner…" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Masculin">Masculin</SelectItem>
+                    <SelectItem value="Féminin">Féminin</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="birthDate">Date de naissance</Label>
+                <Input id="birthDate" type="date" value={form.birthDate} onChange={e => patch("birthDate", e.target.value)} className="h-9" />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="nss">NSS</Label>
+                <Input
+                  id="nss"
+                  value={form.socialSecurityNumber}
+                  onChange={e => patch("socialSecurityNumber", e.target.value)}
+                  placeholder="756.1234.5678.90"
+                  className="h-9"
                 />
               </div>
-            )}
 
-            <div className="space-y-1 md:col-span-2">
-              <Label>Statut (facultatif)</Label>
-              <Input
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-                placeholder="ex. Étudiant, Sans emploi, etc."
+              <div className="space-y-2">
+                <Label htmlFor="address">Adresse</Label>
+                <Input id="address" value={form.address} onChange={e => patch("address", e.target.value)} className="h-9" />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="addressComplement">Complément d'adresse</Label>
+                <Input
+                  id="addressComplement"
+                  value={form.addressComplement}
+                  onChange={e => patch("addressComplement", e.target.value)}
+                  className="h-9"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="postalCode">NPA</Label>
+                <Input id="postalCode" value={form.postalCode} onChange={e => patch("postalCode", e.target.value)} className="h-9" />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="city">Ville</Label>
+                <Input id="city" value={form.city} onChange={e => patch("city", e.target.value)} className="h-9" />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="phone">Téléphone</Label>
+                <Input id="phone" value={form.phone} onChange={e => patch("phone", e.target.value)} className="h-9" />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input id="email" type="email" value={form.email} onChange={e => patch("email", e.target.value)} className="h-9" />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="nationality">Nationalité</Label>
+                <NationalitySelector value={form.nationality} onChange={(v) => patch("nationality", v)} />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="residencePermit">Permis de séjour</Label>
+                <Select
+                  value={form.residencePermit}
+                  onValueChange={(v) => patch("residencePermit", v)}
+                >
+                  <SelectTrigger className="h-9"><SelectValue placeholder="Sélectionner…" /></SelectTrigger>
+                  <SelectContent>
+                    {form.nationality === "Suisse" ? (
+                      <SelectItem value="Citoyen">Citoyen</SelectItem>
+                    ) : (
+                      RESIDENCE_PERMIT_OPTIONS
+                        .filter((p) => p !== "Citoyen")
+                        .map((p) => (
+                          <SelectItem key={p} value={p}>{p}</SelectItem>
+                        ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="maritalStatus">État civil</Label>
+                <Select
+                  value={form.maritalStatus}
+                  onValueChange={(v) => patch("maritalStatus", v)}
+                >
+                  <SelectTrigger className="h-9"><SelectValue placeholder="Sélectionner…" /></SelectTrigger>
+                  <SelectContent>
+                    {MARITAL_STATUS_OPTIONS.map((s) => (
+                      <SelectItem key={s} value={s}>{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Via Lausanne + date */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+              <LausanneStatusFields
+                value={form.lausanneStatus}
+                date={form.lausanneStatusDate}
+                onChange={(k, v) => patch(k as keyof typeof form, v as any)}
               />
             </div>
-          </div>
-        </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Annuler
-          </Button>
-          <Button onClick={handleSave}>Enregistrer</Button>
-        </DialogFooter>
+            {/* Échéance de permis conditionnelle */}
+            <PermitExpiryField
+              permit={form.residencePermit}
+              value={form.permitExpiryDate}
+              onChange={(v) => patch("permitExpiryDate", v)}
+            />
+
+            <Separator />
+
+            {/* Curateur */}
+            <CuratorSection
+              hasCurator={form.hasCurator}
+              curatorName={form.curatorName}
+              curatorAddress={form.curatorAddress}
+              curatorPhone={form.curatorPhone}
+              curatorEmail={form.curatorEmail}
+              onChange={(field, value) => patch(field as keyof typeof form, value as any)}
+            />
+
+            <Separator />
+
+            {/* Statuts (revenus/présences etc.) */}
+            <StatusSelect
+              value={form.statuses}
+              onChange={(v) => patch("statuses", v)}
+            />
+          </div>
+
+          {/* FOOTER fixe */}
+          <DialogFooter className="gap-2 px-4 sm:px-6 py-3 border-t bg-white sticky bottom-0">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Annuler
+            </Button>
+            <Button onClick={handleSave} className="gap-2">
+              <Save className="h-4 w-4" />
+              Enregistrer
+            </Button>
+          </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
-  );
-};
+  )
+}
 
-export default HouseholdMemberDialog;
+export default HouseholdMemberDialog

@@ -1,15 +1,21 @@
 // src/pages/housing/lup/LupPage.tsx
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import { Search, Download, Upload, Layers, ChevronDown, MapPin, AlertTriangle, X } from "lucide-react";
-
 import { CATEGORIES, BASES } from "./constants";
-import { RAW, RAW_VDL, RAW_META, RAW_VDL_TOTAL } from "./raw";
+import {
+  RAW,
+  RAW_VDL,
+  RAW_LLA,
+  RAW_LLA_VDL,
+  RAW_LS,
+  RAW_LE,
+  RAW_LE_VDL,
+} from "./raw";
 import { classNames } from "./classNames";
 import { computeKPIs } from "./computeKPIs";
 import { downloadCSV } from "./downloadCSV";
 import { sortRows } from "./sortRows";
 import { useFilters } from "./useFilters";
-
 import { CatBadge } from "./CatBadge";
 import { StatutBadge } from "./StatutBadge";
 import { Chip } from "./Chip";
@@ -18,19 +24,36 @@ import { DropdownMulti } from "./DropdownMulti";
 import { Panel } from "./Panel";
 import { MiniMap } from "./MiniMap";
 import { TableHeaderCell } from "./TableHeaderCell";
-
 export default function LupPage() {
   // Normalize to keep the UI happy (statut/reconn may be missing on VdL items)
 const ALL_ROWS = useMemo(
   () =>
-    [...RAW, ...RAW_VDL].map((r: any) => ({
-      statut: "Actif",
-      reconn: r.reconn ?? "Commune",
-      overlapLADA: false,
-      cross: [],
-      coords: undefined,
-      ...r,
-    })),
+    [
+      ...RAW,
+      ...RAW_VDL,
+      ...RAW_LLA,
+      ...RAW_LLA_VDL,
+      ...RAW_LS,       // ✅
+      ...RAW_LE,       // ✅
+      ...RAW_LE_VDL,   // ✅
+      // ...RAW_LADA si tu veux aussi tout prendre depuis RAW_LADA
+    ].map((r: any) => {
+      // Normalisation des catégories (évite les écarts "LLM VdL" vs "LLM_VDL")
+      const cat = r.categorie
+        ?.replace(" VdL", "_VDL")   // "LLM VdL" -> "LLM_VDL", "LE VdL" -> "LE_VDL" (au cas où)
+        ?.replace(" ", "_");        // filet de sécurité
+
+      return {
+        statut: "Actif",
+        reconn: r.reconn ?? "Commune",
+        overlapLADA: false,
+        cross: r.cross ?? [],
+        coords: r.coords,
+        source: r.source ?? { org: "DDS", date: "2025-01-01" },
+        ...r,
+        categorie: cat ?? r.categorie,
+      };
+    }),
   []
 );
 

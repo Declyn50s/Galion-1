@@ -330,12 +330,17 @@ const TenantProfilePage: React.FC = () => {
             {/* 3) Ménage (gestion) */}
             <section id="section-household-manage">
               <HouseholdCard
-                household={household}
-                onRemove={state.removeHouseholdMember}
-                onSwap={state.swapWithPersonalInfo}
-                onQuickAdd={state.addHouseholdMemberQuick}
-                onUpdate={state.updateHouseholdMember}
-              />
+  household={household}
+  onRemove={state.removeHouseholdMember}
+  onSwap={state.swapWithPersonalInfo}
+  onQuickAdd={state.addHouseholdMemberQuick}
+  onUpdate={state.updateHouseholdMember}
+  onOpenHistory={() => {
+    // TODO: route dédiée ou drawer
+    // navigate(`/users/${userId}/household-history`);
+  }}
+/>
+
             </section>
 
             {/* 4) Interactions (timeline uniquement) */}
